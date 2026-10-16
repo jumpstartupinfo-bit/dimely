@@ -25,5 +25,5 @@ export function getReferralDurationMonths(): number {
 }
 
 export function isInviteOnly(): boolean {
-  return (getConfig('invite_only') ?? 'true') === 'true'
+  return (getConfig('invite_only') ?? 'false') === 'true'
 }
