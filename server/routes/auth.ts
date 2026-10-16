@@ -3,7 +3,6 @@ import bcrypt from 'bcryptjs'
 import { rateLimit } from 'express-rate-limit'
 import db from '../db'
 import { createSession, deleteSession, requireAuth, extractToken } from '../auth'
-import { getConfig } from '../config'
 import { newId, generateReferralCode, generateReferralSlug } from '../utils'
 
 const router = Router()
@@ -69,10 +68,6 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
           db.prepare(`UPDATE invite_codes SET use_count = use_count + 1, used_at = datetime('now') WHERE id = ?`).run(inv.id)
         }
       }
-    } else if (inviteOnly) {
-      res.status(403).json({ error: 'Dimely is currently invite-only. Please use an invite link or code.' })
-      return
-    }
 
     // Self-referral prevention
     if (referredBy) {
