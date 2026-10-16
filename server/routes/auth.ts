@@ -34,7 +34,7 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
       return
     }
 
-    const inviteOnly = (getConfig('invite_only') ?? 'true') === 'true'
+    const inviteOnly = (getConfig('invite_only') ?? 'false') === 'true'
 
     // Invite-only check
     let referredBy: string | null = null
