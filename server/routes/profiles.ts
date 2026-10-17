@@ -25,7 +25,7 @@ async function computeAvailability(profileId: string): Promise<{ availableToday:
     if (windows.length === 0) continue
 
     const booked = await db.prepare(
-      `SELECT start_time FROM bookings WHERE host_profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
+      `SELECT start_time FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
     ).all(profileId, dateStr) as Array<{ start_time: string }>
     const bookedSet = new Set(booked.map((r) => r.start_time))
 
