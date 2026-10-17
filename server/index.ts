@@ -18,8 +18,10 @@ import './chain-config'
 import callsRouter from './routes/calls'
 
 const app = express()
-app.set('trust proxy', 1)
 const PORT = process.env.API_PORT ? parseInt(process.env.API_PORT) : 3001
+
+// Trust Railway/Vercel proxy headers
+app.set('trust proxy', 1)
 
 // ─── Security middleware ────────────────────────────────────────────────────
 app.use(helmet({ contentSecurityPolicy: false }))
@@ -82,16 +84,14 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
   res.status(500).json({ error: 'An unexpected error occurred. Please try again.' })
 })
 
-// Seed demo profiles before accepting requests
-try {
-  seedDemoProfiles()
-  console.log('Demo profiles seeded')
-} catch (e) {
-  console.warn('Seed error (non-fatal):', e)
-}
-
-app.listen(PORT, () => {
-  console.log(`Dimely API running on http://localhost:${PORT}`)
-})
+// Seed demo profiles then start listening
+seedDemoProfiles()
+  .then(() => console.log('Demo profiles seeded'))
+  .catch((e) => console.warn('Seed error (non-fatal):', e))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`Dimely API running on http://localhost:${PORT}`)
+    })
+  })
 
 export default app

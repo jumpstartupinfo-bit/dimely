@@ -326,16 +326,16 @@ const DEMOS: DemoProfile[] = [
   },
 ]
 
-export function seedDemoProfiles(): void {
+export async function seedDemoProfiles(): Promise<void> {
   for (const demo of DEMOS) {
     // 1. Create a placeholder user for this profile
-    const existingUser = db.prepare('SELECT id FROM users WHERE username = $1').get(demo.username) as { id: string } | undefined
+    const existingUser = await db.prepare('SELECT id FROM users WHERE username = $1').get(demo.username) as { id: string } | undefined
     let userId: string
     if (existingUser) {
       userId = existingUser.id
     } else {
       userId = `demo_${demo.username}`
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO users(id, email, password_hash, name, username, role, email_verified)
         VALUES ($1, $2, $3, $4, $5, 'demo', true)
         ON CONFLICT (id) DO NOTHING
@@ -343,13 +343,13 @@ export function seedDemoProfiles(): void {
     }
 
     // 2. Create profile (skip if exists)
-    const existingProfile = db.prepare('SELECT id FROM profiles WHERE username = $1').get(demo.username) as { id: string } | undefined
+    const existingProfile = await db.prepare('SELECT id FROM profiles WHERE username = $1').get(demo.username) as { id: string } | undefined
     let profileId: string
     if (existingProfile) {
       profileId = existingProfile.id
     } else {
       profileId = `profile_${demo.username}`
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO profiles(
           id, user_id, username, name, headline, bio, location,
           category, tags, price_per_min, min_duration, max_duration,
@@ -374,11 +374,11 @@ export function seedDemoProfiles(): void {
     }
 
     // 3. Seed availability windows (only if none exist yet)
-    const existingAvail = db.prepare('SELECT id FROM availability WHERE profile_id = $1').get(profileId)
+    const existingAvail = await db.prepare('SELECT id FROM availability WHERE profile_id = $1').get(profileId)
     if (!existingAvail) {
       for (const w of demo.availability) {
         const id = `avail_${profileId}_${w.day}`
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO availability(id, profile_id, day_of_week, start_time, end_time)
           VALUES ($1, $2, $3, $4, $5)
           ON CONFLICT (id) DO NOTHING
