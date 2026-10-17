@@ -1,14 +1,14 @@
 import db from './db'
 
 export function getConfig(key: string): string | null {
-  const row = db.prepare('SELECT value FROM platform_config WHERE key = ?').get(key) as { value: string } | undefined
+  const row = db.prepare('SELECT value FROM platform_config WHERE key = $1').get(key) as { value: string } | undefined
   return row?.value ?? null
 }
 
 export function setConfig(key: string, value: string): void {
   db.prepare(`
-    INSERT INTO platform_config(key, value, updated_at) VALUES (?, ?, datetime('now'))
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
+    INSERT INTO platform_config(key, value, updated_at) VALUES ($1, $2, NOW())
+    ON CONFLICT(key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
   `).run(key, value)
 }
 

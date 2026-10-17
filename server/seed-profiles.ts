@@ -1,8 +1,7 @@
 /**
- * Seeds the 12 demo profiles from data/people.ts into the real SQLite DB.
- * Safe to call on every startup — uses INSERT OR IGNORE so it never overwrites
- * an existing row and never duplicates. A matching demo user is created for
- * each profile so bookings can be made against them.
+ * Seeds the 12 demo profiles into the Postgres DB.
+ * Safe to call on every startup — uses ON CONFLICT DO NOTHING so it never
+ * overwrites existing rows and never duplicates.
  */
 import db from './db'
 
@@ -17,6 +16,7 @@ interface DemoProfile {
   pricePerMin: number
   avatarColor: string
   avatarInitials: string
+  photoUrl: string
   voiceAvailable: boolean
   videoAvailable: boolean
   bookingCount: number
@@ -28,11 +28,108 @@ interface DemoProfile {
     tiktok?: string
     youtube?: string
   }
-  // Availability windows: day 0=Sun..6=Sat, times in HH:MM
   availability: Array<{ day: number; start: string; end: string }>
 }
 
 const DEMOS: DemoProfile[] = [
+  {
+    username: 'marcus-chen',
+    name: 'Marcus Chen',
+    headline: 'Founder & Investor',
+    bio: 'Serial entrepreneur with 3 exits. I talk startup strategy, fundraising, and scaling from 0 to 1. Partner at a seed fund focused on African and Southeast Asian founders.',
+    location: 'San Francisco, USA',
+    category: 'Business',
+    tags: ['Startups', 'Fundraising', 'SaaS', 'VC'],
+    pricePerMin: 8,
+    avatarColor: '#0F172A',
+    avatarInitials: 'MC',
+    photoUrl: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 342,
+    verified: true,
+    socialLinks: { twitter: 'marcuschen', linkedin: 'marcuschen' },
+    availability: [
+      { day: 1, start: '09:00', end: '17:00' },
+      { day: 2, start: '09:00', end: '17:00' },
+      { day: 3, start: '09:00', end: '17:00' },
+      { day: 4, start: '09:00', end: '17:00' },
+      { day: 5, start: '09:00', end: '15:00' },
+    ],
+  },
+  {
+    username: 'camila-torres',
+    name: 'Camila Torres',
+    headline: 'Skincare Influencer & Esthetician',
+    bio: 'Licensed esthetician and beauty creator with 2.1M followers. I help people build personalised skincare routines and navigate the overwhelming world of beauty products.',
+    location: 'São Paulo, Brazil',
+    category: 'Health & Wellness',
+    tags: ['Skincare', 'Beauty', 'Wellness'],
+    pricePerMin: 4,
+    avatarColor: '#DB2777',
+    avatarInitials: 'CT',
+    photoUrl: 'https://images.unsplash.com/photo-1531746020798-e6953c6e8e04?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: false,
+    videoAvailable: true,
+    bookingCount: 201,
+    verified: true,
+    socialLinks: { instagram: 'camilatorres', tiktok: 'camilatorres' },
+    availability: [
+      { day: 1, start: '10:00', end: '18:00' },
+      { day: 2, start: '10:00', end: '18:00' },
+      { day: 3, start: '10:00', end: '18:00' },
+      { day: 6, start: '10:00', end: '14:00' },
+    ],
+  },
+  {
+    username: 'james-okonkwo',
+    name: 'James Okonkwo',
+    headline: 'Marketing Strategist',
+    bio: 'Growth marketer who has scaled 4 African startups to 7-figure revenues. Expert in performance marketing, brand building, and GTM strategy for emerging markets.',
+    location: 'Lagos, Nigeria',
+    category: 'Marketing',
+    tags: ['Marketing', 'Growth', 'Branding', 'GTM'],
+    pricePerMin: 5,
+    avatarColor: '#F59E0B',
+    avatarInitials: 'JO',
+    photoUrl: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 215,
+    verified: true,
+    socialLinks: { linkedin: 'jamesokonkwo', twitter: 'jamesokonkwo' },
+    availability: [
+      { day: 1, start: '08:00', end: '16:00' },
+      { day: 2, start: '08:00', end: '16:00' },
+      { day: 3, start: '08:00', end: '16:00' },
+      { day: 4, start: '08:00', end: '16:00' },
+      { day: 5, start: '08:00', end: '12:00' },
+    ],
+  },
+  {
+    username: 'priya-sharma',
+    name: 'Priya Sharma',
+    headline: 'Finance & Wealth Advisor',
+    bio: 'CFA charterholder and personal finance educator. I simplify investing, tax strategy, and wealth building for professionals in their 20s and 30s.',
+    location: 'Mumbai, India',
+    category: 'Finance',
+    tags: ['Finance', 'Investing', 'Wealth', 'Tax'],
+    pricePerMin: 6,
+    avatarColor: '#059669',
+    avatarInitials: 'PS',
+    photoUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 178,
+    verified: true,
+    socialLinks: { linkedin: 'priyasharma', instagram: 'priyasharma' },
+    availability: [
+      { day: 1, start: '09:00', end: '17:00' },
+      { day: 2, start: '09:00', end: '17:00' },
+      { day: 4, start: '09:00', end: '17:00' },
+      { day: 5, start: '09:00', end: '15:00' },
+    ],
+  },
   {
     username: 'aisha-kim',
     name: 'Aisha Kim',
@@ -44,247 +141,66 @@ const DEMOS: DemoProfile[] = [
     pricePerMin: 4,
     avatarColor: '#6366F1',
     avatarInitials: 'AK',
+    photoUrl: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200&h=200&fit=crop&crop=face',
     voiceAvailable: true,
     videoAvailable: true,
     bookingCount: 128,
     verified: true,
     socialLinks: { instagram: 'aishakim', tiktok: 'aishakim', twitter: 'aishakim' },
     availability: [
-      { day: 1, start: '09:00', end: '17:00' }, // Mon
-      { day: 2, start: '09:00', end: '17:00' }, // Tue
-      { day: 3, start: '09:00', end: '17:00' }, // Wed
-      { day: 4, start: '09:00', end: '17:00' }, // Thu
-      { day: 5, start: '09:00', end: '15:00' }, // Fri
-    ],
-  },
-  {
-    username: 'marcus-chen',
-    name: 'Marcus Chen',
-    headline: 'Founder & Investor',
-    bio: 'Three-time founder, two exits. Currently investing in early-stage B2B SaaS. Ask me anything about fundraising, product-market fit, or scaling from 0 to 1.',
-    location: 'San Francisco, USA',
-    category: 'Founders',
-    tags: ['Startups', 'Fundraising', 'SaaS', 'Growth'],
-    pricePerMin: 8,
-    avatarColor: '#0F172A',
-    avatarInitials: 'MC',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 342,
-    verified: true,
-    socialLinks: { linkedin: 'marcuschen', twitter: 'marcuschen' },
-    availability: [
-      { day: 1, start: '10:00', end: '16:00' },
-      { day: 3, start: '10:00', end: '16:00' },
-      { day: 5, start: '10:00', end: '14:00' },
-    ],
-  },
-  {
-    username: 'sofia-reyes',
-    name: 'Sofia Reyes',
-    headline: 'Athlete & Fitness Creator',
-    bio: 'Olympic-level sprinter turned fitness creator with 2M followers. I help people build sustainable athletic performance habits and talk about elite sports culture.',
-    location: 'Madrid, Spain',
-    category: 'Athletes',
-    tags: ['Fitness', 'Athletics', 'Wellness', 'Performance'],
-    pricePerMin: 5,
-    avatarColor: '#EC4899',
-    avatarInitials: 'SR',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 87,
-    verified: true,
-    socialLinks: { instagram: 'sofiareyes', tiktok: 'sofiareyes', youtube: 'sofiareyes' },
-    availability: [
-      { day: 0, start: '09:00', end: '13:00' }, // Sun
-      { day: 1, start: '09:00', end: '18:00' },
-      { day: 2, start: '09:00', end: '18:00' },
-      { day: 3, start: '09:00', end: '18:00' },
-      { day: 4, start: '09:00', end: '18:00' },
-      { day: 5, start: '09:00', end: '16:00' },
-      { day: 6, start: '10:00', end: '14:00' }, // Sat
-    ],
-  },
-  {
-    username: 'james-okafor',
-    name: 'James Okafor',
-    headline: 'Marketing Strategist',
-    bio: 'CMO at two unicorns. Expert in growth marketing, brand building, and scaling consumer products across emerging markets. Mentored 200+ founders.',
-    location: 'Lagos, Nigeria',
-    category: 'Consultants',
-    tags: ['Marketing', 'Growth', 'Branding', 'Strategy'],
-    pricePerMin: 6,
-    avatarColor: '#F59E0B',
-    avatarInitials: 'JO',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 215,
-    verified: true,
-    socialLinks: { linkedin: 'jamesokafor', twitter: 'jamesokafor' },
-    availability: [
-      { day: 1, start: '08:00', end: '18:00' },
-      { day: 2, start: '08:00', end: '18:00' },
-      { day: 3, start: '08:00', end: '18:00' },
-      { day: 4, start: '08:00', end: '18:00' },
-      { day: 5, start: '08:00', end: '16:00' },
-    ],
-  },
-  {
-    username: 'yuna-park',
-    name: 'Yuna Park',
-    headline: 'UX Designer & Educator',
-    bio: 'Principal designer at a global tech company. I teach design thinking, product strategy, and how to build sustainable careers in design.',
-    location: 'Seoul, South Korea',
-    category: 'Coaches',
-    tags: ['Design', 'UX', 'Career', 'Education'],
-    pricePerMin: 3,
-    avatarColor: '#8B5CF6',
-    avatarInitials: 'YP',
-    voiceAvailable: false,
-    videoAvailable: true,
-    bookingCount: 64,
-    verified: true,
-    socialLinks: { linkedin: 'yunapark', instagram: 'yunapark.design' },
-    availability: [
-      { day: 2, start: '10:00', end: '18:00' },
-      { day: 4, start: '10:00', end: '18:00' },
-      { day: 6, start: '10:00', end: '14:00' },
-    ],
-  },
-  {
-    username: 'devin-wells',
-    name: 'Devin Wells',
-    headline: 'Music Producer & DJ',
-    bio: 'Grammy-nominated producer. Credits on 30+ charting records. I talk about the music industry, beat-making, sync licensing, and building a production career.',
-    location: 'Atlanta, USA',
-    category: 'Musicians',
-    tags: ['Music', 'Production', 'Hip-Hop', 'Industry'],
-    pricePerMin: 7,
-    avatarColor: '#1D4ED8',
-    avatarInitials: 'DW',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 156,
-    verified: false,
-    socialLinks: { instagram: 'devinwells', twitter: 'devinwells' },
-    availability: [
-      { day: 3, start: '14:00', end: '20:00' },
-      { day: 5, start: '14:00', end: '20:00' },
-      { day: 6, start: '12:00', end: '18:00' },
-    ],
-  },
-  {
-    username: 'priya-sharma',
-    name: 'Priya Sharma',
-    headline: 'Finance & Investment Coach',
-    bio: 'Former Goldman Sachs VP. I help individuals and early-stage founders navigate personal finance, investing strategies, and building generational wealth.',
-    location: 'Mumbai, India',
-    category: 'Finance',
-    tags: ['Finance', 'Investing', 'Wealth', 'Banking'],
-    pricePerMin: 9,
-    avatarColor: '#059669',
-    avatarInitials: 'PS',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 189,
-    verified: true,
-    socialLinks: { linkedin: 'priyasharma', twitter: 'priyasharma' },
-    availability: [
       { day: 1, start: '09:00', end: '17:00' },
       { day: 2, start: '09:00', end: '17:00' },
       { day: 3, start: '09:00', end: '17:00' },
       { day: 4, start: '09:00', end: '17:00' },
-    ],
-  },
-  {
-    username: 'luca-romano',
-    name: 'Luca Romano',
-    headline: 'Tech Lead & Entrepreneur',
-    bio: 'Engineering leader who has built teams of 100+ at fast-scaling startups. Passionate about engineering culture, system architecture, and technical hiring.',
-    location: 'Milan, Italy',
-    category: 'Technology',
-    tags: ['Technology', 'Engineering', 'Leadership', 'Career'],
-    pricePerMin: 7,
-    avatarColor: '#0891B2',
-    avatarInitials: 'LR',
-    voiceAvailable: true,
-    videoAvailable: false,
-    bookingCount: 43,
-    verified: true,
-    socialLinks: { linkedin: 'lucaromano', twitter: 'lucaromano' },
-    availability: [
-      { day: 1, start: '18:00', end: '22:00' },
-      { day: 3, start: '18:00', end: '22:00' },
-      { day: 5, start: '16:00', end: '21:00' },
-    ],
-  },
-  {
-    username: 'camila-torres',
-    name: 'Camila Torres',
-    headline: 'Skincare Influencer & Esthetician',
-    bio: 'Licensed esthetician and beauty content creator with 4M followers. I do private skincare consultations, brand strategy calls, and creator coaching.',
-    location: 'São Paulo, Brazil',
-    category: 'Influencers',
-    tags: ['Skincare', 'Beauty', 'Wellness', 'Content'],
-    pricePerMin: 4,
-    avatarColor: '#DB2777',
-    avatarInitials: 'CT',
-    voiceAvailable: false,
-    videoAvailable: true,
-    bookingCount: 301,
-    verified: true,
-    socialLinks: { instagram: 'camilatorres', tiktok: 'camilatorres', youtube: 'camilatorres' },
-    availability: [
-      { day: 2, start: '13:00', end: '19:00' },
-      { day: 4, start: '13:00', end: '19:00' },
-      { day: 6, start: '10:00', end: '16:00' },
-    ],
-  },
-  {
-    username: 'rafe-hampton',
-    name: 'Rafe Hampton',
-    headline: 'Career & Interview Coach',
-    bio: 'Former recruiter at FAANG companies. I help professionals nail interviews, negotiate offers, and accelerate their careers at top tech companies.',
-    location: 'London, UK',
-    category: 'Coaches',
-    tags: ['Career', 'Interviews', 'Job Search', 'Negotiation'],
-    pricePerMin: 5,
-    avatarColor: '#7C3AED',
-    avatarInitials: 'RH',
-    voiceAvailable: true,
-    videoAvailable: true,
-    bookingCount: 97,
-    verified: false,
-    socialLinks: { linkedin: 'rafehampton', twitter: 'rafehampton' },
-    availability: [
-      { day: 1, start: '09:00', end: '12:00' },
-      { day: 2, start: '09:00', end: '12:00' },
-      { day: 3, start: '09:00', end: '12:00' },
-      { day: 4, start: '09:00', end: '12:00' },
-      { day: 5, start: '09:00', end: '12:00' },
-      { day: 6, start: '10:00', end: '14:00' },
+      { day: 5, start: '09:00', end: '15:00' },
     ],
   },
   {
     username: 'naledi-dube',
     name: 'Naledi Dube',
     headline: 'Entrepreneur & Startup Coach',
-    bio: 'Built 3 successful companies across fintech and consumer goods. I mentor early-stage founders on product, fundraising, and African market entry.',
+    bio: 'Founded and sold two fintech companies. Now coaching underrepresented founders across Africa and the diaspora on fundraising, product-market fit, and building resilient teams.',
     location: 'Johannesburg, South Africa',
-    category: 'Founders',
-    tags: ['Startups', 'Africa', 'Fintech', 'Mentorship'],
+    category: 'Business',
+    tags: ['Startups', 'Africa', 'Fintech', 'Coaching'],
     pricePerMin: 6,
     avatarColor: '#D97706',
     avatarInitials: 'ND',
+    photoUrl: 'https://images.unsplash.com/photo-1531123897727-8f129e1688ce?w=200&h=200&fit=crop&crop=face',
     voiceAvailable: true,
     videoAvailable: true,
     bookingCount: 72,
     verified: true,
     socialLinks: { linkedin: 'naledidube', twitter: 'naledidube' },
     availability: [
-      { day: 1, start: '08:00', end: '14:00' },
-      { day: 2, start: '08:00', end: '14:00' },
-      { day: 3, start: '08:00', end: '14:00' },
+      { day: 1, start: '08:00', end: '16:00' },
+      { day: 2, start: '08:00', end: '16:00' },
+      { day: 3, start: '08:00', end: '16:00' },
+      { day: 4, start: '08:00', end: '16:00' },
+    ],
+  },
+  {
+    username: 'yuna-park',
+    name: 'Yuna Park',
+    headline: 'UX Designer & Educator',
+    bio: 'Lead UX designer at a top-10 global app. I teach design thinking, portfolio building, and career transitions into product design — especially for self-taught designers.',
+    location: 'Seoul, South Korea',
+    category: 'Design',
+    tags: ['Design', 'UX', 'Career', 'Portfolio'],
+    pricePerMin: 3,
+    avatarColor: '#7C3AED',
+    avatarInitials: 'YP',
+    photoUrl: 'https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: false,
+    videoAvailable: true,
+    bookingCount: 64,
+    verified: true,
+    socialLinks: { instagram: 'yunapark', linkedin: 'yunapark' },
+    availability: [
+      { day: 2, start: '18:00', end: '22:00' },
+      { day: 4, start: '18:00', end: '22:00' },
+      { day: 6, start: '10:00', end: '16:00' },
+      { day: 0, start: '12:00', end: '18:00' },
     ],
   },
   {
@@ -298,6 +214,7 @@ const DEMOS: DemoProfile[] = [
     pricePerMin: 10,
     avatarColor: '#DC2626',
     avatarInitials: 'AC',
+    photoUrl: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&h=200&fit=crop&crop=face',
     voiceAvailable: true,
     videoAvailable: true,
     bookingCount: 58,
@@ -311,68 +228,163 @@ const DEMOS: DemoProfile[] = [
       { day: 5, start: '09:00', end: '13:00' },
     ],
   },
+  {
+    username: 'luca-romano',
+    name: 'Luca Romano',
+    headline: 'Tech Lead & Engineering Manager',
+    bio: 'Ex-Google, now building and advising engineering teams at growth-stage startups. I help developers level up, navigate system design, and grow into leadership roles.',
+    location: 'Milan, Italy',
+    category: 'Technology',
+    tags: ['Technology', 'Engineering', 'Leadership', 'Career'],
+    pricePerMin: 7,
+    avatarColor: '#0891B2',
+    avatarInitials: 'LR',
+    photoUrl: 'https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 43,
+    verified: true,
+    socialLinks: { linkedin: 'lucaromano', twitter: 'lucaromano' },
+    availability: [
+      { day: 1, start: '17:00', end: '21:00' },
+      { day: 3, start: '17:00', end: '21:00' },
+      { day: 5, start: '17:00', end: '21:00' },
+    ],
+  },
+  {
+    username: 'fatima-al-rashid',
+    name: 'Fatima Al-Rashid',
+    headline: 'Executive Career Coach',
+    bio: 'Former McKinsey consultant turned career coach. I help ambitious professionals land top-tier jobs, negotiate offers, and build their personal brand for leadership roles.',
+    location: 'Dubai, UAE',
+    category: 'Career',
+    tags: ['Career', 'Leadership', 'Consulting', 'Executive'],
+    pricePerMin: 9,
+    avatarColor: '#6366F1',
+    avatarInitials: 'FA',
+    photoUrl: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 97,
+    verified: true,
+    socialLinks: { linkedin: 'fatimaralrashid' },
+    availability: [
+      { day: 0, start: '10:00', end: '18:00' },
+      { day: 1, start: '09:00', end: '17:00' },
+      { day: 2, start: '09:00', end: '17:00' },
+      { day: 3, start: '09:00', end: '17:00' },
+    ],
+  },
+  {
+    username: 'kwame-asante',
+    name: 'Kwame Asante',
+    headline: 'Blockchain & Web3 Developer',
+    bio: 'Smart contract engineer and DeFi protocol architect. I help teams navigate Web3 development, tokenomics design, and blockchain infrastructure for real-world use cases.',
+    location: 'Accra, Ghana',
+    category: 'Technology',
+    tags: ['Web3', 'Blockchain', 'DeFi', 'Smart Contracts'],
+    pricePerMin: 8,
+    avatarColor: '#059669',
+    avatarInitials: 'KA',
+    photoUrl: 'https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 31,
+    verified: true,
+    socialLinks: { twitter: 'kwameasante', linkedin: 'kwameasante' },
+    availability: [
+      { day: 1, start: '18:00', end: '22:00' },
+      { day: 2, start: '18:00', end: '22:00' },
+      { day: 3, start: '18:00', end: '22:00' },
+      { day: 6, start: '09:00', end: '17:00' },
+    ],
+  },
+  {
+    username: 'sofia-reyes',
+    name: 'Sofia Reyes',
+    headline: 'Mindfulness & Productivity Coach',
+    bio: 'Certified mindfulness instructor and productivity coach. I help high-achievers and entrepreneurs manage stress, build sustainable habits, and perform at their best without burning out.',
+    location: 'Mexico City, Mexico',
+    category: 'Health & Wellness',
+    tags: ['Mindfulness', 'Productivity', 'Wellness', 'Coaching'],
+    pricePerMin: 3,
+    avatarColor: '#EC4899',
+    avatarInitials: 'SR',
+    photoUrl: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&h=200&fit=crop&crop=face',
+    voiceAvailable: true,
+    videoAvailable: true,
+    bookingCount: 156,
+    verified: true,
+    socialLinks: { instagram: 'sofiareyes', youtube: 'sofiareyes' },
+    availability: [
+      { day: 1, start: '07:00', end: '12:00' },
+      { day: 2, start: '07:00', end: '12:00' },
+      { day: 3, start: '07:00', end: '12:00' },
+      { day: 4, start: '07:00', end: '12:00' },
+      { day: 5, start: '07:00', end: '12:00' },
+    ],
+  },
 ]
-
-function crypto_rand_hex(n: number): string {
-  const arr = new Uint8Array(n)
-  crypto.getRandomValues(arr)
-  return Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 export function seedDemoProfiles(): void {
   for (const demo of DEMOS) {
-    // 1. Create a placeholder user for this profile (password can never be used)
-    const existingUser = db.prepare('SELECT id FROM users WHERE username = ?').get(demo.username) as { id: string } | undefined
+    // 1. Create a placeholder user for this profile
+    const existingUser = db.prepare('SELECT id FROM users WHERE username = $1').get(demo.username) as { id: string } | undefined
     let userId: string
     if (existingUser) {
       userId = existingUser.id
     } else {
       userId = `demo_${demo.username}`
       db.prepare(`
-        INSERT OR IGNORE INTO users(id, email, password_hash, name, username, role, email_verified)
-        VALUES (?, ?, ?, ?, ?, 'demo', 1)
+        INSERT INTO users(id, email, password_hash, name, username, role, email_verified)
+        VALUES ($1, $2, $3, $4, $5, 'demo', true)
+        ON CONFLICT (id) DO NOTHING
       `).run(userId, `${demo.username}@demo.dimely.com`, '__no_login__', demo.name, demo.username)
     }
 
-    // 2. Create/update profile
-    const existingProfile = db.prepare('SELECT id FROM profiles WHERE username = ?').get(demo.username) as { id: string } | undefined
+    // 2. Create profile (skip if exists)
+    const existingProfile = db.prepare('SELECT id FROM profiles WHERE username = $1').get(demo.username) as { id: string } | undefined
     let profileId: string
     if (existingProfile) {
       profileId = existingProfile.id
     } else {
       profileId = `profile_${demo.username}`
       db.prepare(`
-        INSERT OR IGNORE INTO profiles(
+        INSERT INTO profiles(
           id, user_id, username, name, headline, bio, location,
           category, tags, price_per_min, min_duration, max_duration,
-          voice_available, video_available, avatar_color, avatar_initials,
+          voice_available, video_available, avatar_color, avatar_initials, photo_url,
           social_instagram, social_twitter, social_linkedin, social_tiktok, social_youtube,
           verified, published, booking_count
-        ) VALUES (?,?,?,?,?,?,?,?,?,?,15,60,?,?,?,?,?,?,?,?,?,?,1,?)
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,15,60,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,true,$22)
+        ON CONFLICT (id) DO NOTHING
       `).run(
         profileId, userId, demo.username, demo.name, demo.headline, demo.bio, demo.location,
         demo.category, JSON.stringify(demo.tags), demo.pricePerMin,
-        demo.voiceAvailable ? 1 : 0, demo.videoAvailable ? 1 : 0,
-        demo.avatarColor, demo.avatarInitials,
+        demo.voiceAvailable, demo.videoAvailable,
+        demo.avatarColor, demo.avatarInitials, demo.photoUrl,
         demo.socialLinks.instagram ?? null,
         demo.socialLinks.twitter ?? null,
         demo.socialLinks.linkedin ?? null,
         demo.socialLinks.tiktok ?? null,
         demo.socialLinks.youtube ?? null,
-        demo.verified ? 1 : 0,
+        demo.verified,
         demo.bookingCount,
       )
     }
 
     // 3. Seed availability windows (only if none exist yet)
-    const existingAvail = db.prepare('SELECT id FROM availability WHERE profile_id = ?').get(profileId)
+    const existingAvail = db.prepare('SELECT id FROM availability WHERE profile_id = $1').get(profileId)
     if (!existingAvail) {
       for (const w of demo.availability) {
+        const id = `avail_${profileId}_${w.day}`
         db.prepare(`
-          INSERT OR IGNORE INTO availability(id, profile_id, day_of_week, start_time, end_time)
-          VALUES (?, ?, ?, ?, ?)
-        `).run(`avail_${crypto_rand_hex(8)}`, profileId, w.day, w.start, w.end)
+          INSERT INTO availability(id, profile_id, day_of_week, start_time, end_time)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (id) DO NOTHING
+        `).run(id, profileId, w.day, w.start, w.end)
       }
     }
   }
+  console.log('Demo profiles seeded.')
 }

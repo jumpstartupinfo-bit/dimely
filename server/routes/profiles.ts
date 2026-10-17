@@ -137,34 +137,37 @@ function buildProfileShape(r: Record<string, unknown>, includeAvailability = fal
 router.get('/', optionalAuth, (req: Request, res: Response) => {
   const { q, category, availableToday, video, maxPrice, limit = '24', offset = '0' } = req.query
 
-  let sql = `SELECT * FROM profiles WHERE published = 1`
+  let sql = `SELECT * FROM profiles WHERE published = true`
   const params: unknown[] = []
+  let pIdx = 1
 
   if (q) {
     sql += ` AND (
-      name LIKE ? OR headline LIKE ? OR bio LIKE ?
-      OR tags LIKE ? OR location LIKE ? OR category LIKE ?
+      name ILIKE $${pIdx} OR headline ILIKE $${pIdx + 1} OR bio ILIKE $${pIdx + 2}
+      OR tags ILIKE $${pIdx + 3} OR location ILIKE $${pIdx + 4} OR category ILIKE $${pIdx + 5}
     )`
     const like = `%${q}%`
     params.push(like, like, like, like, like, like)
+    pIdx += 6
   }
 
   if (category && category !== 'All') {
-    sql += ` AND (category = ? OR tags LIKE ?)`
+    sql += ` AND (category = $${pIdx} OR tags ILIKE $${pIdx + 1})`
     params.push(category, `%${category}%`)
+    pIdx += 2
   }
 
   if (video === 'true') {
-    sql += ` AND video_available = 1`
+    sql += ` AND video_available = true`
   }
 
   if (maxPrice) {
-    // maxPrice is the max 30-min price, so price_per_min <= maxPrice/30
-    sql += ` AND price_per_min <= ?`
+    sql += ` AND price_per_min <= $${pIdx}`
     params.push(parseFloat(maxPrice as string) / 30)
+    pIdx += 1
   }
 
-  sql += ` ORDER BY booking_count DESC, verified DESC LIMIT ? OFFSET ?`
+  sql += ` ORDER BY booking_count DESC, verified DESC LIMIT $${pIdx} OFFSET $${pIdx + 1}`
   params.push(parseInt(limit as string, 10), parseInt(offset as string, 10))
 
   const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>
@@ -187,7 +190,7 @@ router.get('/:username', optionalAuth, (req: Request, res: Response) => {
   // Owner can always see their own profile (published or not)
   const authUser = (req as Request & { user?: { id: string } }).user
   const row = db.prepare(
-    `SELECT * FROM profiles WHERE username = ? AND (published = 1 OR user_id = ?)`
+    `SELECT * FROM profiles WHERE username = $1 AND (published = true OR user_id = $2)`
   ).get(req.params.username, authUser?.id ?? '') as Record<string, unknown> | undefined
 
   if (!row) { res.status(404).json({ error: 'Profile not found' }); return }
@@ -200,7 +203,7 @@ router.get('/:username', optionalAuth, (req: Request, res: Response) => {
 router.get('/:username/availability', (req: Request, res: Response) => {
   const { date } = req.query // "YYYY-MM-DD"
   const profile = db.prepare(
-    'SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = ? AND published = 1'
+    'SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = $1 AND published = true'
   ).get(req.params.username) as Record<string, unknown> | undefined
 
   if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }

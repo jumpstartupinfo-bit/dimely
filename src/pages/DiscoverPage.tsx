@@ -2,6 +2,7 @@ import type { Page } from '../App'
 import { useState, useEffect, useCallback } from 'react'
 import { Search, Mic, Video, CheckCircle2, MapPin, Zap, SlidersHorizontal, X, Bot, AlertCircle } from 'lucide-react'
 import { profiles as profilesApi, type Profile } from '../lib/api'
+import { useAuth } from '../context/AuthContext'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -92,10 +93,12 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
       {/* Header */}
       <div className="flex items-start gap-3 mb-4">
         <div
-          className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 text-sm"
+          className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 text-sm overflow-hidden"
           style={{ backgroundColor: profile.avatar_color }}
         >
-          {profile.avatar_initials}
+          {profile.photo_url
+            ? <img src={profile.photo_url} alt={profile.name} className="w-full h-full object-cover" />
+            : profile.avatar_initials}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
@@ -132,25 +135,28 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
       </div>
 
       {/* Meta row */}
-      <div className="flex items-center gap-3 mb-4 text-xs text-[#64748B]">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2 mb-4 text-xs text-[#64748B] flex-wrap">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {!!profile.video_available && <Video size={12} className="text-[#6366F1]" />}
           {!!profile.voice_available && <Mic size={12} className="text-[#6366F1]" />}
           <span className="font-semibold text-[#0F172A] tabular-nums ml-1">${profile.price_per_min}/min</span>
         </div>
-        <span>·</span>
-        <span>{profile.booking_count} bookings</span>
-        <span>·</span>
-        <div className="flex items-center gap-1">
-          {profile.available_today ? (
-            <>
+        <span className="flex-shrink-0">·</span>
+        <span className="flex-shrink-0">{profile.booking_count} bookings</span>
+        {profile.available_today ? (
+          <>
+            <span className="flex-shrink-0">·</span>
+            <div className="flex items-center gap-1 flex-shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
               <span className="text-emerald-600 font-medium">Available today</span>
-            </>
-          ) : (
-            <span className="truncate">{profile.next_available ?? 'No availability'}</span>
-          )}
-        </div>
+            </div>
+          </>
+        ) : profile.next_available ? (
+          <>
+            <span className="flex-shrink-0">·</span>
+            <span className="truncate max-w-[120px]">{profile.next_available}</span>
+          </>
+        ) : null}
       </div>
 
       <button
@@ -170,6 +176,7 @@ interface DiscoverPageProps {
 }
 
 export function DiscoverPage({ onNavigate }: DiscoverPageProps) {
+  const { user } = useAuth()
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState('All')
   const [aiMode, setAiMode] = useState(false)
@@ -200,14 +207,15 @@ export function DiscoverPage({ onNavigate }: DiscoverPageProps) {
         video: opts.video || undefined,
         maxPrice: opts.maxPrice ?? undefined,
       })
-      setResults(data.profiles)
+      // Exclude the logged-in user's own profile
+      setResults(data.profiles.filter((p) => !user || p.username !== user.username))
     } catch {
       setError('Something went wrong loading people. Please try again.')
       setResults([])
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [user])
 
   // Initial load
   useEffect(() => {

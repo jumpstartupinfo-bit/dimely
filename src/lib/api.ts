@@ -4,7 +4,7 @@
 
 // In production (Vercel), VITE_API_URL points to the Railway API server.
 // In dev, it is unset and requests go through the Vite proxy at /api.
-const BASE = (import.meta.env.VITE_API_URL ?? '') + '/api'
+const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/$/, '') + '/api'
 
 function getToken(): string | null {
   return localStorage.getItem('dimely_token')
@@ -116,6 +116,7 @@ export interface Profile {
   video_available: boolean | number
   avatar_color: string
   avatar_initials: string
+  photo_url?: string | null
   social_instagram?: string | null
   social_twitter?: string | null
   social_linkedin?: string | null

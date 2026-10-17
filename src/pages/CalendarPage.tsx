@@ -2,7 +2,6 @@ import type { Page } from '../App'
 import { useState, useEffect } from 'react'
 import { ChevronLeft, ChevronRight, Video, Mic } from 'lucide-react'
 import { bookings as bookingsApi, availability as availabilityApi, type Booking } from '../lib/api'
-import { MOCK_BOOKINGS } from '../data/mockData'
 
 
 
@@ -27,26 +26,46 @@ const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
 // Stable reference computed once at module load — safe to use in render
 const TODAY_DATE = new Date().getDate()
 
-// Adapt mock booking for display when API unavailable
-function mockAsBooking(m: (typeof MOCK_BOOKINGS)[0]): Booking {
-  return {
-    id: m.id, guest_user_id: '', host_user_id: '', host_profile_id: '',
-    date: m.date, start_time: m.time, end_time: '',
-    duration: m.duration, call_type: m.callType, topic: m.topic,
-    guest_name: m.role === 'host' ? m.personName : undefined,
-    host_name: m.role === 'guest' ? m.personName : undefined,
-    status: m.status === 'upcoming' ? 'confirmed' : m.status,
-    gross_amount: m.totalPaid ?? 0, platform_fee: 0, host_earnings: m.hostEarnings ?? 0,
-    role: m.role,
-    personColor: m.personColor, personInitials: m.personInitials,
-  } as Booking & { personColor: string; personInitials: string }
-}
-
 export function CalendarPage({ onNavigate }: CalendarPageProps) {
   const [view, setView] = useState<'week' | 'month' | 'availability'>('week')
   const [availability, setAvailability] = useState(AVAILABILITY_SLOTS)
+  const [bufferMinutes, setBufferMinutes] = useState(10)
+  const [savingAvailability, setSavingAvailability] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
   const todayDate = TODAY_DATE
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([])
+
+  async function handleSaveAvailability() {
+    setSavingAvailability(true)
+    setSaveSuccess(false)
+    const DAY_MAP: Record<string, number> = {
+      Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6, Sunday: 0,
+    }
+    function to24(t: string): string {
+      const [time, period] = t.split(' ')
+      const [h, m] = time.split(':').map(Number)
+      let hour = h
+      if (period === 'PM' && h !== 12) hour = h + 12
+      if (period === 'AM' && h === 12) hour = 0
+      return `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+    }
+    const windows = availability
+      .filter((s) => s.enabled)
+      .map((s) => ({
+        day_of_week: DAY_MAP[s.day],
+        start_time: to24(s.start),
+        end_time: to24(s.end),
+      }))
+    try {
+      await availabilityApi.setWindows(windows)
+      setSaveSuccess(true)
+      setTimeout(() => setSaveSuccess(false), 3000)
+    } catch {
+      // error handled silently — button re-enables
+    } finally {
+      setSavingAvailability(false)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -57,7 +76,7 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
         }
       })
       .catch(() => {
-        if (!cancelled) setUpcomingBookings(MOCK_BOOKINGS.filter((b) => b.status === 'upcoming').map(mockAsBooking))
+        if (!cancelled) setUpcomingBookings([])
       })
     return () => { cancelled = true }
   }, [])
@@ -237,7 +256,10 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
               {([null, null] as (string | null)[]).concat(MONTH_DAYS.map(String)).map((d, i) => {
                 const date = d ? parseInt(d) : null
                 const isToday = date === todayDate
-                const hasBooking = date && [9, 10].includes(date)
+                const hasBooking = date && upcomingBookings.some((b) => {
+                  const d = new Date(b.date)
+                  return d.getUTCDate() === date
+                })
                 return (
                   <div
                     key={i}
@@ -306,8 +328,9 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
                 {[0, 5, 10, 15, 30].map((m) => (
                   <button
                     key={m}
+                    onClick={() => setBufferMinutes(m)}
                     className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                      m === 10 ? 'bg-[#6366F1] text-white' : 'bg-[#F8FAFC] text-[#64748B] hover:bg-[#E0E7FF] hover:text-[#6366F1]'
+                      m === bufferMinutes ? 'bg-[#6366F1] text-white' : 'bg-[#F8FAFC] text-[#64748B] hover:bg-[#E0E7FF] hover:text-[#6366F1]'
                     }`}
                   >
                     {m === 0 ? 'None' : `${m} min`}
@@ -316,8 +339,17 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
               </div>
             </div>
 
-            <button className="w-full bg-[#6366F1] hover:bg-[#4F46E5] text-white font-semibold py-3.5 rounded-2xl transition-all">
-              Save availability
+            {saveSuccess && (
+              <div className="mb-3 text-center text-sm font-medium text-emerald-600 bg-emerald-50 rounded-xl py-2.5">
+                Availability saved successfully
+              </div>
+            )}
+            <button
+              onClick={() => { void handleSaveAvailability() }}
+              disabled={savingAvailability}
+              className="w-full bg-[#6366F1] hover:bg-[#4F46E5] disabled:opacity-60 text-white font-semibold py-3.5 rounded-2xl transition-all"
+            >
+              {savingAvailability ? 'Saving...' : 'Save availability'}
             </button>
           </div>
         )}

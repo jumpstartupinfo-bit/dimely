@@ -178,15 +178,15 @@ export function Nav({ currentPage, onNavigate, isLoggedIn, onLogout }: NavProps)
                     <p className="text-xs text-[#64748B]">dimely.com/{displayUsername}</p>
                   </div>
                   {[
-                    { label: 'My Dimely', icon: User, page: 'profile' as Page },
-                    { label: 'My AI Agent', icon: Bot, page: 'ai-agent' as Page },
-                    { label: 'Invite & Earn', icon: UserPlus, page: 'invite' as Page },
-                    { label: 'Settings', icon: Settings, page: 'settings' as Page },
-                    ...(user?.role === 'admin' ? [{ label: 'Admin Dashboard', icon: LayoutDashboard, page: 'admin' as Page }] : []),
-                  ].map(({ label, icon: Icon, page }) => (
+                    { label: 'My Dimely', icon: User, page: 'profile' as Page, username: displayUsername },
+                    { label: 'My AI Agent', icon: Bot, page: 'ai-agent' as Page, username: undefined },
+                    { label: 'Invite & Earn', icon: UserPlus, page: 'invite' as Page, username: undefined },
+                    { label: 'Settings', icon: Settings, page: 'settings' as Page, username: undefined },
+                    ...(user?.role === 'admin' ? [{ label: 'Admin Dashboard', icon: LayoutDashboard, page: 'admin' as Page, username: undefined }] : []),
+                  ].map(({ label, icon: Icon, page, username }) => (
                     <button
                       key={page}
-                      onClick={() => { onNavigate(page); setProfileOpen(false) }}
+                      onClick={() => { onNavigate(page, username); setProfileOpen(false) }}
                       className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm hover:bg-gray-50 transition-colors ${page === 'admin' ? 'text-[#6366F1] font-semibold' : 'text-[#0F172A]'}`}
                     >
                       <Icon size={15} className={page === 'admin' ? 'text-[#6366F1]' : 'text-[#64748B]'} />

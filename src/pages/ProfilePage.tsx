@@ -273,10 +273,12 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
               <div className="h-20 bg-gradient-to-r from-[#6366F1] to-[#818CF8]" />
               <div className="px-5 pb-5">
                 <div
-                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-lg -mt-8 mb-3 border-4 border-white shadow-md"
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center text-white font-bold text-lg -mt-8 mb-3 border-4 border-white shadow-md overflow-hidden"
                   style={{ backgroundColor: profile.avatar_color }}
                 >
-                  {profile.avatar_initials}
+                  {profile.photo_url
+                    ? <img src={profile.photo_url} alt={profile.name} className="w-full h-full object-cover" />
+                    : profile.avatar_initials}
                 </div>
                 <div className="flex items-start justify-between">
                   <div>
