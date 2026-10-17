@@ -18,6 +18,7 @@ import './chain-config'
 import callsRouter from './routes/calls'
 
 const app = express()
+app.set('trust proxy', 1)
 const PORT = process.env.API_PORT ? parseInt(process.env.API_PORT) : 3001
 
 // ─── Security middleware ────────────────────────────────────────────────────
