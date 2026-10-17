@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { rateLimit } from 'express-rate-limit'
 import db from '../db'
-import { createSession, deleteSession, requireAuth } from '../auth'
+import { createSession, deleteSession, requireAuth, extractToken } from '../auth'
 import { newId, generateReferralCode, generateReferralSlug } from '../utils'
 
 const router = Router()
@@ -15,127 +15,58 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 })
 
-// POST /api/auth/signup
 router.post('/signup', authLimiter, async (req: Request, res: Response) => {
   try {
-    const { email, password, name, username, inviteCode } = req.body
-
+    const { email, password, name, username } = req.body
     if (!email || !password || !name || !username) {
-      res.status(400).json({ error: 'All fields are required' })
-      return
+      res.status(400).json({ error: 'All fields are required' }); return
     }
     if (password.length < 8) {
-      res.status(400).json({ error: 'Password must be at least 8 characters' })
-      return
+      res.status(400).json({ error: 'Password must be at least 8 characters' }); return
     }
-    if (!/^[a-z0-9-]{3,30}$/.test(username)) {
-      res.status(400).json({ error: 'Username must be 3–30 lowercase letters, numbers, or hyphens' })
-      return
+    if (!/^[a-z0-9-]{3,30}$/.test(username.toLowerCase())) {
+      res.status(400).json({ error: 'Username must be 3-30 lowercase letters, numbers, or hyphens' }); return
     }
 
-    // Referral tracking (open signup — no invite gate)
-    let referredBy: string | null = null
-    let referralCodeId: string | null = null
-
-    if (inviteCode) {
-      const refCode = db.prepare(`
-        SELECT rc.id, rc.user_id FROM referral_codes rc
-        JOIN users u ON u.id = rc.user_id
-        WHERE rc.code = $1 AND rc.is_active = true
-      `).get(inviteCode.trim().toUpperCase()) as { id: string; user_id: string } | undefined
-
-      if (refCode) {
-        referredBy = refCode.user_id
-        referralCodeId = refCode.id
-      } else {
-        const inv = db.prepare(`
-          SELECT id, created_by FROM invite_codes
-          WHERE code = $1 AND is_active = true
-          AND (expires_at IS NULL OR expires_at > NOW())
-          AND use_count < max_uses
-        `).get(inviteCode.trim().toUpperCase()) as { id: string; created_by: string | null } | undefined
-
-        if (inv) {
-          referredBy = inv.created_by
-          db.prepare(`UPDATE invite_codes SET use_count = use_count + 1, used_at = NOW() WHERE id = $1`).run(inv.id)
-        }
-      }
-    }
-
-    // Self-referral prevention
-    if (referredBy) {
-      const referrer = db.prepare('SELECT username FROM users WHERE id = $1').get(referredBy) as { username: string } | undefined
-      if (referrer?.username === username.toLowerCase()) {
-        res.status(400).json({ error: 'Self-referral is not allowed.' })
-        return
-      }
-    }
-
-    // Check uniqueness
-    const existingEmail = db.prepare('SELECT id FROM users WHERE email = $1').get(email.toLowerCase())
+    const existingEmail = await db.prepare('SELECT id FROM users WHERE email = $1').get(email.toLowerCase())
     if (existingEmail) { res.status(409).json({ error: 'An account with this email already exists' }); return }
 
-    const existingUsername = db.prepare('SELECT id FROM users WHERE username = $1').get(username.toLowerCase())
+    const existingUsername = await db.prepare('SELECT id FROM users WHERE username = $1').get(username.toLowerCase())
     if (existingUsername) { res.status(409).json({ error: 'That username is already taken' }); return }
 
     const passwordHash = await bcrypt.hash(password, 12)
     const userId = newId()
+    const lowerUsername = username.toLowerCase()
+    const lowerEmail = email.toLowerCase()
+
+    await db.prepare(
+      `INSERT INTO users(id, email, password_hash, name, username) VALUES ($1, $2, $3, $4, $5)`
+    ).run(userId, lowerEmail, passwordHash, name, lowerUsername)
+
+    await db.prepare(`INSERT INTO wallets(user_id) VALUES ($1)`).run(userId)
 
     const initials = name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
     const colors = ['#6366F1', '#0891B2', '#059669', '#D97706', '#DC2626', '#7C3AED', '#DB2777']
     const color = colors[Math.floor(Math.random() * colors.length)]
     const profileId = newId()
-    const refCode = generateReferralCode(username)
-    const refSlug = generateReferralSlug(username)
-    const agentId = newId()
-    const refRelId = newId()
-    const refCodeId = newId()
 
-    // Atomic signup
-    const doSignup = db.transaction(() => {
-      db.prepare(`
-        INSERT INTO users(id, email, password_hash, name, username, referred_by)
-        VALUES ($1, $2, $3, $4, $5, $6)
-      `).run(userId, email.toLowerCase(), passwordHash, name, username.toLowerCase(), referredBy)
+    await db.prepare(
+      `INSERT INTO profiles(id, user_id, username, name, headline, avatar_initials, avatar_color, published)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+    ).run(profileId, userId, lowerUsername, name, '', initials, color, true)
 
-      db.prepare(`INSERT INTO wallets(user_id) VALUES ($1)`).run(userId)
+    const refCode = generateReferralCode(lowerUsername)
+    const refSlug = generateReferralSlug(lowerUsername)
+    await db.prepare(
+      `INSERT INTO referral_codes(id, user_id, code, link_slug) VALUES ($1, $2, $3, $4)`
+    ).run(newId(), userId, refCode, refSlug)
 
-      db.prepare(`
-        INSERT INTO profiles(id, user_id, username, name, headline, avatar_initials, avatar_color, published)
-        VALUES ($1, $2, $3, $4, '', $5, $6, true)
-      `).run(profileId, userId, username.toLowerCase(), name, initials, color)
+    await db.prepare(`INSERT INTO ai_agents(id, user_id) VALUES ($1, $2)`).run(newId(), userId)
 
-      db.prepare(`
-        INSERT INTO referral_codes(id, user_id, code, link_slug)
-        VALUES ($1, $2, $3, $4)
-      `).run(refCodeId, userId, refCode, refSlug)
-
-      db.prepare(`INSERT INTO ai_agents(id, user_id) VALUES ($1, $2)`).run(agentId, userId)
-
-      if (referredBy && referralCodeId) {
-        const expiresAt = new Date()
-        expiresAt.setMonth(expiresAt.getMonth() + 12)
-
-        const isCircular = db.prepare(
-          `SELECT id FROM referral_relationships WHERE referrer_id = $1`
-        ).get(userId)
-
-        if (!isCircular) {
-          db.prepare(`
-            INSERT INTO referral_relationships(id, referrer_id, referred_id, referral_code_id, status, activated_at, expires_at)
-            VALUES ($1, $2, $3, $4, 'active', NOW(), $5)
-          `).run(refRelId, referredBy, userId, referralCodeId, expiresAt.toISOString())
-        }
-      }
-    })
-
-    doSignup()
-
-    const token = createSession(userId)
-
+    const token = await createSession(userId)
     res.status(201).json({
       token,
-      user: { id: userId, email: email.toLowerCase(), name, username: username.toLowerCase() },
+      user: { id: userId, email: lowerEmail, name, username: lowerUsername }
     })
   } catch (err) {
     console.error('Signup error:', err)
@@ -143,22 +74,20 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/auth/login
 router.post('/login', authLimiter, async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body
-    if (!email || !password) { res.status(400).json({ error: 'Email and password are required' }); return }
-
-    const user = db.prepare('SELECT * FROM users WHERE email = $1').get(email.toLowerCase()) as any
+    if (!email || !password) {
+      res.status(400).json({ error: 'Email and password are required' }); return
+    }
+    const user = await db.prepare('SELECT * FROM users WHERE email = $1').get(email.toLowerCase()) as Record<string, unknown> | undefined
     if (!user) { res.status(401).json({ error: 'Invalid email or password' }); return }
-
-    const valid = await bcrypt.compare(password, user.password_hash)
+    const valid = await bcrypt.compare(password, user.password_hash as string)
     if (!valid) { res.status(401).json({ error: 'Invalid email or password' }); return }
-
-    const token = createSession(user.id)
+    const token = await createSession(user.id as string)
     res.json({
       token,
-      user: { id: user.id, email: user.email, name: user.name, username: user.username, role: user.role },
+      user: { id: user.id, email: user.email, name: user.name, username: user.username, role: user.role }
     })
   } catch (err) {
     console.error('Login error:', err)
@@ -166,19 +95,27 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/auth/logout
-router.post('/logout', requireAuth, (req: Request, res: Response) => {
-  const token = (req.headers.authorization ?? '').slice(7)
-  if (token) deleteSession(token)
-  res.json({ ok: true })
+router.post('/logout', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const token = extractToken(req)
+    if (token) await deleteSession(token)
+    res.json({ ok: true })
+  } catch (err) {
+    console.error('Logout error:', err)
+    res.status(500).json({ error: 'Logout failed' })
+  }
 })
 
-// GET /api/auth/me
-router.get('/me', requireAuth, (req: Request, res: Response) => {
-  const user = (req as any).user
-  const profile = db.prepare('SELECT * FROM profiles WHERE user_id = $1').get(user.id) as any
-  const refCode = db.prepare('SELECT code, link_slug FROM referral_codes WHERE user_id = $1').get(user.id) as any
-  res.json({ user, profile, referralCode: refCode?.code, referralSlug: refCode?.link_slug })
+router.get('/me', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const user = (req as Record<string, unknown>).user as { id: string }
+    const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = $1').get(user.id)
+    const refCode = await db.prepare('SELECT code, link_slug FROM referral_codes WHERE user_id = $1').get(user.id) as { code: string; link_slug: string } | undefined
+    res.json({ user, profile, referralCode: refCode?.code, referralSlug: refCode?.link_slug })
+  } catch (err) {
+    console.error('/me error:', err)
+    res.status(500).json({ error: 'Failed to load user' })
+  }
 })
 
 export default router

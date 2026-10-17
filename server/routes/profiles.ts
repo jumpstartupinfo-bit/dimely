@@ -4,56 +4,30 @@ import { requireAuth, optionalAuth } from '../auth'
 
 const router = Router()
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function tryParse(str: string, fallback: unknown): unknown {
-  try { return JSON.parse(str) } catch { return fallback }
+function tryParse(v: unknown, fallback: unknown): unknown {
+  if (typeof v !== 'string') return fallback
+  try { return JSON.parse(v) } catch { return fallback }
 }
 
-/**
- * For a profile, compute whether they have availability today (UTC) and their
- * next available slot label. We do a lightweight check against the availability
- * windows and a count of existing bookings — no full slot expansion needed.
- */
-function computeAvailability(profileId: string): { availableToday: boolean; nextAvailable: string } {
+async function computeAvailability(profileId: string): Promise<{ availableToday: boolean; nextAvailable: string }> {
   const todayUtc = new Date()
-  const todayDow = todayUtc.getUTCDay() // 0=Sun
+  function isoDate(d: Date): string { return d.toISOString().slice(0, 10) }
 
-  // Format a date as YYYY-MM-DD in UTC
-  function isoDate(d: Date): string {
-    return d.toISOString().slice(0, 10)
-  }
-
-  // Check up to 14 days ahead
   for (let offset = 0; offset < 14; offset++) {
     const d = new Date(todayUtc)
     d.setUTCDate(d.getUTCDate() + offset)
     const dow = d.getUTCDay()
     const dateStr = isoDate(d)
 
-    // Check for a full-day exception blocking this date
-    const exception = db.prepare(
-      `SELECT type FROM availability_exceptions WHERE profile_id = ? AND date = ?`
-    ).get(profileId, dateStr)
-    if (exception) continue
-
-    // Check if there are any recurring availability windows this day
-    const windows = db.prepare(
-      `SELECT start_time, end_time FROM availability WHERE profile_id = ? AND day_of_week = ?`
+    const windows = await db.prepare(
+      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`
     ).all(profileId, dow) as Array<{ start_time: string; end_time: string }>
     if (windows.length === 0) continue
 
-    // Generate 30-min slots and see if any are free
-    const bookedSet = new Set<string>(
-      (db.prepare(
-        `SELECT start_time FROM bookings WHERE host_profile_id = ? AND date = ? AND status NOT IN ('cancelled','refunded','expired')`
-      ).all(profileId, dateStr) as Array<{ start_time: string }>).map((r) => r.start_time)
-    )
-    const reservedSet = new Set<string>(
-      (db.prepare(
-        `SELECT start_time FROM slot_reservations WHERE profile_id = ? AND date = ? AND expires_at > datetime('now')`
-      ).all(profileId, dateStr) as Array<{ start_time: string }>).map((r) => r.start_time)
-    )
+    const booked = await db.prepare(
+      `SELECT start_time FROM bookings WHERE host_profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
+    ).all(profileId, dateStr) as Array<{ start_time: string }>
+    const bookedSet = new Set(booked.map((r) => r.start_time))
 
     for (const w of windows) {
       const [sh, sm] = w.start_time.split(':').map(Number)
@@ -63,21 +37,14 @@ function computeAvailability(profileId: string): { availableToday: boolean; next
       while (cur + 30 <= end) {
         const hh = String(Math.floor(cur / 60)).padStart(2, '0')
         const mm = String(cur % 60).padStart(2, '0')
-        const slot = `${hh}:${mm}`
-        if (!bookedSet.has(slot) && !reservedSet.has(slot)) {
-          // Found a free slot
-          const isToday = offset === 0
-          if (isToday) {
-            // Format as "Today, H:MM AM/PM"
-            const h = Math.floor(cur / 60)
-            const m = cur % 60
+        if (!bookedSet.has(`${hh}:${mm}`)) {
+          if (offset === 0) {
+            const h = Math.floor(cur / 60), m = cur % 60
             const ampm = h >= 12 ? 'PM' : 'AM'
             const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h
-            const label = `Today, ${h12}:${String(m).padStart(2, '0')} ${ampm}`
-            return { availableToday: true, nextAvailable: label }
+            return { availableToday: true, nextAvailable: `Today, ${h12}:${String(m).padStart(2, '0')} ${ampm}` }
           } else {
-            // Format as "DayName, MMM D"
-            const dayName = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]
+            const dayName = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getUTCDay()]
             const monthName = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getUTCMonth()]
             return { availableToday: false, nextAvailable: `${dayName}, ${monthName} ${d.getUTCDate()}` }
           }
@@ -86,206 +53,229 @@ function computeAvailability(profileId: string): { availableToday: boolean; next
       }
     }
   }
-
   return { availableToday: false, nextAvailable: 'No availability' }
 }
 
-function buildProfileShape(r: Record<string, unknown>, includeAvailability = false) {
-  const base = {
+function buildProfileShape(r: Record<string, unknown>, avail?: { availableToday: boolean; nextAvailable: string }) {
+  const tags = typeof r.tags === 'string' ? tryParse(r.tags, []) : (r.tags ?? [])
+  const socialLinks = typeof r.social_links === 'string' ? tryParse(r.social_links, {}) : {}
+  return {
     id: r.id,
     user_id: r.user_id,
     username: r.username,
     name: r.name,
-    headline: r.headline,
-    bio: r.bio,
-    location: r.location,
-    timezone: r.timezone,
-    category: r.category,
-    tags: tryParse(r.tags as string, []),
-    price_per_min: r.price_per_min,
-    min_duration: r.min_duration,
-    max_duration: r.max_duration,
-    voice_available: r.voice_available,
-    video_available: r.video_available,
-    avatar_color: r.avatar_color,
-    avatar_initials: r.avatar_initials,
-    verified: r.verified,
-    published: r.published,
-    booking_count: r.booking_count,
-    socialLinks: {
-      instagram: r.social_instagram ?? null,
-      twitter: r.social_twitter ?? null,
-      linkedin: r.social_linkedin ?? null,
-      tiktok: r.social_tiktok ?? null,
-      youtube: r.social_youtube ?? null,
-    },
-    // raw columns kept for compat
-    social_instagram: r.social_instagram,
-    social_twitter: r.social_twitter,
-    social_linkedin: r.social_linkedin,
-    social_tiktok: r.social_tiktok,
-    social_youtube: r.social_youtube,
+    headline: r.headline ?? '',
+    bio: r.bio ?? '',
+    location: r.location ?? '',
+    category: r.category ?? '',
+    tags,
+    price_per_min: r.price_per_min ?? 5,
+    min_duration: r.min_duration ?? 15,
+    max_duration: r.max_duration ?? 60,
+    voice_available: r.voice_available === true || r.voice_available === 1,
+    video_available: r.video_available === true || r.video_available === 1,
+    avatar_color: r.avatar_color ?? '#6366F1',
+    avatar_initials: r.avatar_initials ?? '??',
+    photo_url: r.photo_url ?? null,
+    social_instagram: r.social_instagram ?? null,
+    social_twitter: r.social_twitter ?? null,
+    social_linkedin: r.social_linkedin ?? null,
+    social_tiktok: r.social_tiktok ?? null,
+    social_youtube: r.social_youtube ?? null,
+    socialLinks,
+    verified: r.verified === true || r.verified === 1,
+    booking_count: r.booking_count ?? 0,
+    available_today: avail?.availableToday ?? false,
+    next_available: avail?.nextAvailable ?? '',
   }
-  if (includeAvailability) {
-    const avail = computeAvailability(r.id as string)
-    return { ...base, available_today: avail.availableToday, next_available: avail.nextAvailable }
-  }
-  return base
 }
 
 // ─── GET /api/profiles ────────────────────────────────────────────────────────
-router.get('/', optionalAuth, (req: Request, res: Response) => {
-  const { q, category, availableToday, video, maxPrice, limit = '24', offset = '0' } = req.query
+router.get('/', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const { q, category, video, availableToday, maxPrice, limit = '20', offset = '0', exclude } = req.query
 
-  let sql = `SELECT * FROM profiles WHERE published = true`
-  const params: unknown[] = []
-  let pIdx = 1
+    const params: unknown[] = [true]
+    const conditions: string[] = ['p.published = $1']
+    let pi = 2
 
-  if (q) {
-    sql += ` AND (
-      name ILIKE $${pIdx} OR headline ILIKE $${pIdx + 1} OR bio ILIKE $${pIdx + 2}
-      OR tags ILIKE $${pIdx + 3} OR location ILIKE $${pIdx + 4} OR category ILIKE $${pIdx + 5}
-    )`
-    const like = `%${q}%`
-    params.push(like, like, like, like, like, like)
-    pIdx += 6
+    if (q) {
+      conditions.push(`(
+        p.name ILIKE $${pi} OR p.username ILIKE $${pi} OR p.headline ILIKE $${pi}
+        OR p.bio ILIKE $${pi} OR p.location ILIKE $${pi} OR p.category ILIKE $${pi}
+      )`)
+      params.push(`%${q}%`)
+      pi++
+    }
+    if (category && category !== 'All') {
+      conditions.push(`p.category = $${pi}`)
+      params.push(category)
+      pi++
+    }
+    if (video === 'true') {
+      conditions.push(`p.video_available = $${pi}`)
+      params.push(true)
+      pi++
+    }
+    if (maxPrice) {
+      const maxPerMin = Number(maxPrice) / 30
+      conditions.push(`p.price_per_min <= $${pi}`)
+      params.push(maxPerMin)
+      pi++
+    }
+    if (exclude) {
+      conditions.push(`p.username != $${pi}`)
+      params.push(exclude)
+      pi++
+    }
+
+    const where = conditions.join(' AND ')
+    const lim = Math.min(Number(limit), 50)
+    const off = Number(offset)
+
+    const rows = await db.prepare(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where} ORDER BY p.booking_count DESC LIMIT $${pi} OFFSET $${pi + 1}`
+    ).all(...params, lim, off) as Record<string, unknown>[]
+
+    const countRow = await db.prepare(
+      `SELECT COUNT(*) as total FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where}`
+    ).get(...params) as { total: string | number }
+
+    const profiles = await Promise.all(
+      rows.map(async (r) => {
+        const avail = await computeAvailability(r.id as string)
+        if (availableToday === 'true' && !avail.availableToday) return null
+        return buildProfileShape(r, avail)
+      })
+    )
+
+    res.json({
+      profiles: profiles.filter(Boolean),
+      total: Number(countRow?.total ?? 0),
+    })
+  } catch (err) {
+    console.error('GET /profiles error:', err)
+    res.status(500).json({ error: 'Failed to load profiles' })
   }
-
-  if (category && category !== 'All') {
-    sql += ` AND (category = $${pIdx} OR tags ILIKE $${pIdx + 1})`
-    params.push(category, `%${category}%`)
-    pIdx += 2
-  }
-
-  if (video === 'true') {
-    sql += ` AND video_available = true`
-  }
-
-  if (maxPrice) {
-    sql += ` AND price_per_min <= $${pIdx}`
-    params.push(parseFloat(maxPrice as string) / 30)
-    pIdx += 1
-  }
-
-  sql += ` ORDER BY booking_count DESC, verified DESC LIMIT $${pIdx} OFFSET $${pIdx + 1}`
-  params.push(parseInt(limit as string, 10), parseInt(offset as string, 10))
-
-  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>
-
-  // Build profile shapes with real availability
-  let profiles = rows.map((r) => buildProfileShape(r, true))
-
-  // availableToday filter is applied post-fetch since it requires availability computation
-  if (availableToday === 'true') {
-    profiles = profiles.filter((p) => p.available_today)
-  }
-
-  res.json({ profiles, total: profiles.length })
 })
 
 // ─── GET /api/profiles/:username ──────────────────────────────────────────────
-router.get('/:username', optionalAuth, (req: Request, res: Response) => {
-  if (req.params.username === 'me') { res.status(400).json({ error: 'Use /auth/me for own profile' }); return }
+router.get('/:username', optionalAuth, async (req: Request, res: Response) => {
+  try {
+    const reqUser = (req as Record<string, unknown>).user as { id: string } | undefined
+    const row = await db.prepare(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.username = $1`
+    ).get(req.params.username) as Record<string, unknown> | undefined
 
-  // Owner can always see their own profile (published or not)
-  const authUser = (req as Request & { user?: { id: string } }).user
-  const row = db.prepare(
-    `SELECT * FROM profiles WHERE username = $1 AND (published = true OR user_id = $2)`
-  ).get(req.params.username, authUser?.id ?? '') as Record<string, unknown> | undefined
+    if (!row) { res.status(404).json({ error: 'Profile not found' }); return }
+    if (!row.published && (!reqUser || reqUser.id !== row.user_id)) {
+      res.status(404).json({ error: 'Profile not found' }); return
+    }
 
-  if (!row) { res.status(404).json({ error: 'Profile not found' }); return }
+    const avail = await computeAvailability(row.id as string)
+    res.json({ profile: buildProfileShape(row, avail) })
+  } catch (err) {
+    console.error('GET /profiles/:username error:', err)
+    res.status(500).json({ error: 'Failed to load profile' })
+  }
+})
 
-  const profile = buildProfileShape(row, true)
-  res.json(profile)
+// ─── PATCH /api/profiles/:username ────────────────────────────────────────────
+router.patch('/:username', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const reqUser = (req as Record<string, unknown>).user as { id: string }
+    const profile = await db.prepare(
+      `SELECT id, user_id FROM profiles WHERE username = $1`
+    ).get(req.params.username) as { id: string; user_id: string } | undefined
+
+    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
+    if (profile.user_id !== reqUser.id) { res.status(403).json({ error: 'Forbidden' }); return }
+
+    const allowed = ['headline','bio','location','photo_url','category','tags','price_per_min','min_duration','max_duration','voice_available','video_available','social_instagram','social_twitter','social_linkedin','social_tiktok','social_youtube']
+    const sets: string[] = []
+    const vals: unknown[] = []
+    let pi = 1
+
+    for (const key of allowed) {
+      if (key in req.body) {
+        let val = req.body[key]
+        if (key === 'tags' && Array.isArray(val)) val = JSON.stringify(val)
+        sets.push(`${key} = $${pi}`)
+        vals.push(val)
+        pi++
+      }
+    }
+
+    if (sets.length === 0) { res.status(400).json({ error: 'Nothing to update' }); return }
+    vals.push(profile.id)
+    await db.prepare(`UPDATE profiles SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${pi}`).run(...vals)
+
+    const updated = await db.prepare(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.id = $1`
+    ).get(profile.id) as Record<string, unknown>
+    res.json({ profile: buildProfileShape(updated) })
+  } catch (err) {
+    console.error('PATCH /profiles/:username error:', err)
+    res.status(500).json({ error: 'Failed to update profile' })
+  }
 })
 
 // ─── GET /api/profiles/:username/availability ─────────────────────────────────
-router.get('/:username/availability', (req: Request, res: Response) => {
-  const { date } = req.query // "YYYY-MM-DD"
-  const profile = db.prepare(
-    'SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = $1 AND published = true'
-  ).get(req.params.username) as Record<string, unknown> | undefined
+router.get('/:username/availability', async (req: Request, res: Response) => {
+  try {
+    const { date } = req.query
+    const profile = await db.prepare(
+      `SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = $1 AND published = true`
+    ).get(req.params.username) as Record<string, unknown> | undefined
 
-  if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
-  if (!date) { res.status(400).json({ error: 'date query param required' }); return }
+    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
+    if (!date) { res.status(400).json({ error: 'date query param required' }); return }
 
-  const dateStr = date as string
-  const dayOfWeek = new Date(dateStr + 'T12:00:00Z').getUTCDay()
+    const dateStr = date as string
+    const d = new Date(dateStr + 'T00:00:00Z')
+    const dow = d.getUTCDay()
 
-  const windows = db.prepare(
-    `SELECT * FROM availability WHERE profile_id = ? AND day_of_week = ?`
-  ).all(profile.id, dayOfWeek) as Array<Record<string, unknown>>
+    const windows = await db.prepare(
+      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`
+    ).all(profile.id, dow) as Array<{ start_time: string; end_time: string }>
 
-  const exception = db.prepare(
-    `SELECT * FROM availability_exceptions WHERE profile_id = ? AND date = ?`
-  ).get(profile.id, dateStr)
+    if (windows.length === 0) { res.json({ slots: [] }); return }
 
-  if (exception) { res.json({ slots: [], blocked: true, reason: (exception as Record<string,unknown>).type }); return }
+    const booked = await db.prepare(
+      `SELECT start_time, duration_min FROM bookings WHERE host_profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
+    ).all(profile.id, dateStr) as Array<{ start_time: string; duration_min: number }>
 
-  // Generate 30-min slots
-  const slots: string[] = []
-  for (const w of windows) {
-    const [sh, sm] = (w.start_time as string).split(':').map(Number)
-    const [eh, em] = (w.end_time as string).split(':').map(Number)
-    let current = sh * 60 + sm
-    const end = eh * 60 + em
-    while (current + 30 <= end) {
-      const hh = String(Math.floor(current / 60)).padStart(2, '0')
-      const mm = String(current % 60).padStart(2, '0')
-      slots.push(`${hh}:${mm}`)
-      current += 30
+    const minDur = Number(profile.min_duration ?? 15)
+    const blockedSlots = new Set<string>()
+    for (const b of booked) {
+      const [bh, bm] = b.start_time.split(':').map(Number)
+      const startMin = bh * 60 + bm
+      for (let i = 0; i < b.duration_min; i += 15) {
+        const t = startMin + i
+        blockedSlots.add(`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`)
+      }
     }
-  }
 
-  // Remove taken slots
-  const bookedSlots = db.prepare(
-    `SELECT start_time FROM bookings WHERE host_profile_id = ? AND date = ? AND status NOT IN ('cancelled', 'refunded', 'expired')`
-  ).all(profile.id, dateStr) as Array<{ start_time: string }>
-
-  const reservedSlots = db.prepare(
-    `SELECT start_time FROM slot_reservations WHERE profile_id = ? AND date = ? AND expires_at > datetime('now')`
-  ).all(profile.id, dateStr) as Array<{ start_time: string }>
-
-  const taken = new Set([
-    ...bookedSlots.map((b) => b.start_time),
-    ...reservedSlots.map((r) => r.start_time),
-  ])
-
-  const available = slots.filter((s) => !taken.has(s))
-  res.json({ slots: available, timezone: profile.timezone })
-})
-
-// ─── PATCH /api/profiles/me ───────────────────────────────────────────────────
-router.patch('/me', requireAuth, (req: Request, res: Response) => {
-  const user = (req as Request & { user: { id: string } }).user
-  const profile = db.prepare('SELECT id FROM profiles WHERE user_id = ?').get(user.id) as { id: string } | undefined
-  if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
-
-  const allowed = [
-    'headline', 'bio', 'location', 'timezone', 'category', 'tags',
-    'price_per_min', 'min_duration', 'max_duration', 'voice_available', 'video_available',
-    'social_instagram', 'social_twitter', 'social_linkedin', 'social_tiktok', 'social_youtube',
-    'published', 'avatar_color', 'avatar_initials',
-  ]
-  const updates: string[] = []
-  const vals: unknown[] = []
-
-  for (const key of allowed) {
-    if ((req.body as Record<string, unknown>)[key] !== undefined) {
-      updates.push(`${key} = ?`)
-      vals.push(key === 'tags' ? JSON.stringify((req.body as Record<string, unknown>)[key]) : (req.body as Record<string, unknown>)[key])
+    const slots: string[] = []
+    for (const w of windows) {
+      const [sh, sm] = w.start_time.split(':').map(Number)
+      const [eh, em] = w.end_time.split(':').map(Number)
+      let cur = sh * 60 + sm
+      const end = eh * 60 + em
+      while (cur + minDur <= end) {
+        const hh = String(Math.floor(cur / 60)).padStart(2, '0')
+        const mm = String(cur % 60).padStart(2, '0')
+        const slot = `${hh}:${mm}`
+        if (!blockedSlots.has(slot)) slots.push(slot)
+        cur += 30
+      }
     }
+
+    res.json({ slots, pricePerMin: profile.price_per_min, minDuration: minDur })
+  } catch (err) {
+    console.error('GET /profiles/:username/availability error:', err)
+    res.status(500).json({ error: 'Failed to load availability' })
   }
-
-  if (updates.length === 0) { res.status(400).json({ error: 'No valid fields to update' }); return }
-
-  updates.push(`updated_at = datetime('now')`)
-  vals.push(profile.id)
-
-  db.prepare(`UPDATE profiles SET ${updates.join(', ')} WHERE id = ?`).run(...vals)
-
-  const updated = db.prepare('SELECT * FROM profiles WHERE id = ?').get(profile.id) as Record<string, unknown>
-  res.json(buildProfileShape(updated, false))
 })
 
 export default router
