@@ -34,8 +34,14 @@ export type Page =
 
 function AppInner() {
   const { isLoggedIn, loading, logout } = useAuth()
-  const [page, setPage] = useState<Page>('landing')
-  const [activeUsername, setActiveUsername] = useState<string>('aisha-kim')
+
+  // Read initial URL to restore page state
+  const initialPath = window.location.pathname
+  const initialPage: Page = initialPath === '/discover' ? 'discover' : initialPath.length > 1 ? 'profile' : 'landing'
+  const initialUsername = initialPath.length > 1 && initialPath !== '/discover' ? initialPath.slice(1) : 'aisha-kim'
+
+  const [page, setPage] = useState<Page>(initialPage)
+  const [activeUsername, setActiveUsername] = useState<string>(initialUsername)
   const [activeBookingId, setActiveBookingId] = useState<string | undefined>(undefined)
   const [returnTo, setReturnTo] = useState<{ page: Page; username?: string } | undefined>(undefined)
 
@@ -55,6 +61,14 @@ function AppInner() {
       setReturnTo(undefined)
     }
     setPage(targetPage)
+    // Update URL so profile pages are shareable
+    if (targetPage === 'profile' && usernameOrBookingId) {
+      window.history.pushState({}, '', `/${usernameOrBookingId}`)
+    } else if (targetPage === 'landing') {
+      window.history.pushState({}, '', '/')
+    } else if (targetPage === 'discover') {
+      window.history.pushState({}, '', '/discover')
+    }
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 

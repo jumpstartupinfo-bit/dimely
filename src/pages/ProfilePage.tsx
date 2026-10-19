@@ -16,9 +16,13 @@ import {
   Zap,
   Link,
   AlertCircle,
+  Pencil,
+  X,
+  Save,
 } from 'lucide-react'
 import { profiles as profilesApi, type Profile } from '../lib/api'
 import { Logo } from '../components/Logo'
+import { useAuth } from '../context/AuthContext'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -123,9 +127,21 @@ interface ProfilePageProps {
 }
 
 export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
+  const { user, refreshMe } = useAuth()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+
+  // Edit modal state
+  const [editOpen, setEditOpen] = useState(false)
+  const [editName, setEditName] = useState('')
+  const [editHeadline, setEditHeadline] = useState('')
+  const [editBio, setEditBio] = useState('')
+  const [editPrice, setEditPrice] = useState('')
+  const [editTags, setEditTags] = useState('')
+  const [editLocation, setEditLocation] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
   // Calendar state
   const [weekOffset, setWeekOffset] = useState(0)
@@ -190,6 +206,42 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
       void loadSlots(day.isoDate)
     } else {
       setSelectedSlot(null)
+    }
+  }
+
+  const isOwnProfile = !!user && profile?.user_id === user.id
+
+  function openEdit() {
+    if (!profile) return
+    setEditName(profile.name)
+    setEditHeadline(profile.headline ?? '')
+    setEditBio(profile.bio ?? '')
+    setEditPrice(String(profile.price_per_min))
+    setEditTags((profile.tags ?? []).join(', '))
+    setEditLocation(profile.location ?? '')
+    setSaveError('')
+    setEditOpen(true)
+  }
+
+  async function saveEdit() {
+    setSaving(true)
+    setSaveError('')
+    try {
+      const updated = await profilesApi.updateMe({
+        name: editName.trim(),
+        headline: editHeadline.trim(),
+        bio: editBio.trim(),
+        price_per_min: parseFloat(editPrice) || 0,
+        tags: editTags.split(',').map(t => t.trim()).filter(Boolean),
+        location: editLocation.trim(),
+      })
+      setProfile(prev => prev ? { ...prev, ...updated } : prev)
+      await refreshMe()
+      setEditOpen(false)
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -282,7 +334,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                     : profile.avatar_initials}
                 </div>
                 <div className="flex items-start justify-between">
-                  <div>
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <h1
                         className="text-lg font-bold text-[#0F172A]"
@@ -294,8 +346,17 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                         <CheckCircle2 size={16} className="text-[#6366F1]" fill="#6366F1" color="white" />
                       )}
                     </div>
-                    <p className="text-sm text-[#64748B]">{profile.headline}</p>
+                    <p className="text-sm text-[#64748B]">{profile.headline || (isOwnProfile ? <span className="italic text-gray-400">Add a headline</span> : '')}</p>
                   </div>
+                  {isOwnProfile && (
+                    <button
+                      onClick={openEdit}
+                      className="flex-shrink-0 ml-2 p-1.5 rounded-lg hover:bg-[#E0E7FF] text-[#64748B] hover:text-[#6366F1] transition-colors"
+                      title="Edit profile"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                  )}
                 </div>
                 {profile.location && (
                   <div className="flex items-center gap-1.5 mt-2 text-xs text-[#64748B]">
@@ -612,6 +673,61 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
           </div>
         </div>
       </div>
+
+      {/* ── Inline edit modal ─────────────────────────────────────────── */}
+      {editOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-6 border-b border-gray-100">
+              <h2 className="text-base font-bold text-[#0F172A]" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Edit profile</h2>
+              <button onClick={() => setEditOpen(false)} className="p-1.5 rounded-lg hover:bg-gray-100 text-[#64748B]"><X size={16} /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              {[
+                { label: 'Name', value: editName, setter: setEditName, placeholder: 'Your full name' },
+                { label: 'Headline', value: editHeadline, setter: setEditHeadline, placeholder: 'e.g. Founder & Investor' },
+                { label: 'Location', value: editLocation, setter: setEditLocation, placeholder: 'e.g. San Francisco, USA' },
+                { label: 'Price per minute (USD)', value: editPrice, setter: setEditPrice, placeholder: 'e.g. 5', type: 'number' },
+                { label: 'Tags (comma separated)', value: editTags, setter: setEditTags, placeholder: 'e.g. Startups, Investing, SaaS' },
+              ].map(({ label, value, setter, placeholder, type }) => (
+                <div key={label}>
+                  <label className="text-xs font-semibold text-[#64748B] uppercase tracking-wider block mb-1.5">{label}</label>
+                  <input
+                    type={type ?? 'text'}
+                    value={value}
+                    onChange={e => setter(e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:border-transparent"
+                    placeholder={placeholder}
+                  />
+                </div>
+              ))}
+              <div>
+                <label className="text-xs font-semibold text-[#64748B] uppercase tracking-wider block mb-1.5">Bio</label>
+                <textarea
+                  value={editBio}
+                  onChange={e => setEditBio(e.target.value)}
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 text-sm text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:border-transparent resize-none"
+                  placeholder="Tell people about yourself..."
+                />
+              </div>
+              {saveError && <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-xl">{saveError}</p>}
+            </div>
+            <div className="px-6 pb-6 flex gap-3">
+              <button onClick={() => setEditOpen(false)} className="flex-1 py-3 rounded-xl border border-gray-200 text-sm font-semibold text-[#64748B] hover:bg-gray-50 transition-colors">Cancel</button>
+              <button
+                onClick={() => { void saveEdit() }}
+                disabled={saving}
+                className="flex-1 py-3 rounded-xl bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold transition-colors flex items-center justify-center gap-2 disabled:opacity-60"
+              >
+                {saving
+                  ? <div className="w-4 h-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
+                  : <><Save size={14} /> Save changes</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
