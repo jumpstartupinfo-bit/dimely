@@ -131,7 +131,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
 
           {/* Right — hero card stack */}
           <div className="relative flex justify-center lg:justify-end overflow-visible">
-            <div className="relative w-full max-w-sm pb-8">
+            <div className="relative w-full max-w-sm pt-8 pb-8">
               {/* Main profile card */}
               <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 relative z-10">
                 {/* Profile header */}
@@ -213,7 +213,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
               </div>
 
               {/* Floating confirmation card */}
-              <div className="absolute -bottom-6 -right-4 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 flex items-center gap-3 z-20 max-w-[200px]">
+              <div className="absolute -bottom-4 right-2 bg-white rounded-2xl shadow-xl border border-gray-100 p-4 flex items-center gap-3 z-20 max-w-[200px]">
                 <div className="w-9 h-9 rounded-xl bg-emerald-100 flex items-center justify-center flex-shrink-0">
                   <CheckCircle2 size={18} className="text-emerald-600" />
                 </div>
@@ -224,7 +224,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
               </div>
 
               {/* Floating earnings card */}
-              <div className="absolute -top-4 -left-4 bg-white rounded-2xl shadow-xl border border-gray-100 p-3.5 flex items-center gap-3 z-20">
+              <div className="absolute -top-6 left-2 bg-white rounded-2xl shadow-xl border border-gray-100 p-3.5 flex items-center gap-3 z-20">
                 <div className="w-9 h-9 rounded-xl bg-[#E0E7FF] flex items-center justify-center flex-shrink-0">
                   <span className="text-[#6366F1] font-bold text-sm">$</span>
                 </div>
