@@ -91,7 +91,7 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
       className="bg-white border border-gray-100 rounded-2xl p-5 hover:shadow-lg hover:border-[#A5B4FC] transition-all cursor-pointer group"
     >
       {/* Header */}
-      <div className="flex items-start gap-3 mb-4">
+      <div className="flex items-start gap-3 mb-3">
         <div
           className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0 text-sm overflow-hidden"
           style={{ backgroundColor: profile.avatar_color }}
@@ -101,15 +101,20 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
             : profile.avatar_initials}
         </div>
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             <p
-              className="font-bold text-[#0F172A] text-sm truncate"
+              className="font-bold text-[#0F172A] text-sm"
               style={{ fontFamily: "'Space Grotesk', sans-serif" }}
             >
               {profile.name}
             </p>
             {!!profile.verified && (
               <CheckCircle2 size={13} className="text-[#6366F1] flex-shrink-0" fill="#6366F1" color="white" />
+            )}
+            {badge && (
+              <span className={`text-xs font-semibold px-2 py-0.5 rounded-lg ${BADGE_STYLES[badge] ?? 'bg-gray-100 text-[#64748B]'}`}>
+                {badge}
+              </span>
             )}
           </div>
           <p className="text-xs text-[#64748B] truncate">{profile.headline}</p>
@@ -118,11 +123,6 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
             <p className="text-xs text-[#64748B] truncate">{profile.location}</p>
           </div>
         </div>
-        {badge && (
-          <span className={`text-xs font-semibold px-2 py-1 rounded-lg flex-shrink-0 ${BADGE_STYLES[badge] ?? 'bg-gray-100 text-[#64748B]'}`}>
-            {badge}
-          </span>
-        )}
       </div>
 
       {/* Tags */}

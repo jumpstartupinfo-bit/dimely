@@ -242,15 +242,15 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
     if (windows.length === 0) { res.json({ slots: [] }); return }
 
     const booked = await db.prepare(
-      `SELECT start_time, duration_min FROM bookings WHERE host_profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
-    ).all(profile.id, dateStr) as Array<{ start_time: string; duration_min: number }>
+      `SELECT start_time, duration_mins FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
+    ).all(profile.id, dateStr) as Array<{ start_time: string; duration_mins: number }>
 
     const minDur = Number(profile.min_duration ?? 15)
     const blockedSlots = new Set<string>()
     for (const b of booked) {
       const [bh, bm] = b.start_time.split(':').map(Number)
       const startMin = bh * 60 + bm
-      for (let i = 0; i < b.duration_min; i += 15) {
+      for (let i = 0; i < b.duration_mins; i += 15) {
         const t = startMin + i
         blockedSlots.add(`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`)
       }
