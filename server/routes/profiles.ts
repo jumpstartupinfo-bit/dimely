@@ -84,7 +84,7 @@ function buildProfileShape(r: Record<string, unknown>, avail?: { availableToday:
     social_youtube: r.social_youtube ?? null,
     socialLinks,
     verified: r.verified === true || r.verified === 1,
-    booking_count: r.booking_count ?? 0,
+    booking_count: Number(r.booking_count ?? 0),
     available_today: avail?.availableToday ?? false,
     next_available: avail?.nextAvailable ?? '',
   }

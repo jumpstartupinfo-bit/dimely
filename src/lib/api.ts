@@ -4,7 +4,9 @@
 
 // In production (Vercel), VITE_API_URL points to the Railway API server.
 // In dev, it is unset and requests go through the Vite proxy at /api.
-const BASE = ((import.meta.env.VITE_API_URL as string | undefined) ?? '').replace(/\/$/, '') + '/api'
+const API_URL = (import.meta.env.VITE_API_URL as string | undefined)
+  ?? (typeof window !== 'undefined' && window.location.hostname !== 'localhost' ? 'https://dimely-production.up.railway.app' : '')
+const BASE = API_URL.replace(/\/$/, '') + '/api'
 
 function getToken(): string | null {
   return localStorage.getItem('dimely_token')
@@ -145,6 +147,9 @@ export const profiles = {
     video?: boolean
     maxPrice?: number
     availableToday?: boolean
+    limit?: number
+    offset?: number
+    exclude?: string
   }) => {
     const qs = new URLSearchParams()
     if (params?.q) qs.set('q', params.q)
@@ -152,6 +157,9 @@ export const profiles = {
     if (params?.video) qs.set('video', 'true')
     if (params?.maxPrice) qs.set('maxPrice', String(params.maxPrice))
     if (params?.availableToday) qs.set('availableToday', 'true')
+    if (params?.limit) qs.set('limit', String(params.limit))
+    if (params?.offset) qs.set('offset', String(params.offset))
+    if (params?.exclude) qs.set('exclude', params.exclude)
     const qStr = qs.toString()
     return request<{ profiles: Profile[]; total: number }>('GET', `/profiles${qStr ? `?${qStr}` : ''}`)
   },

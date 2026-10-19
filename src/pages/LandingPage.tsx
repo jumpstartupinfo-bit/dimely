@@ -11,7 +11,8 @@ import {
   ArrowRight,
 } from 'lucide-react'
 import { Logo } from '../components/Logo'
-import { PEOPLE } from '../data/people'
+import { useEffect, useState as useStateProfiles } from 'react'
+import { profiles as profilesApi, type Profile } from '../lib/api'
 
 
 
@@ -60,8 +61,11 @@ const STATS = [
 
 export function LandingPage({ onNavigate }: LandingPageProps) {
   const [aiQuery, setAiQuery] = useState('')
+  const [featuredPeople, setFeaturedPeople] = useStateProfiles<Profile[]>([])
 
-  const featuredPeople = PEOPLE.slice(0, 6)
+  useEffect(() => {
+    void profilesApi.list({ limit: 6 }).then(r => { setFeaturedPeople(r.profiles) }).catch(() => {})
+  }, [])
 
   function handleAiSearch(e: React.FormEvent) {
     e.preventDefault()
@@ -338,12 +342,10 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
               onClick={() => onNavigate('profile', person.username)}
               className="bg-white border border-gray-100 rounded-2xl p-5 flex items-start gap-4 hover:shadow-md hover:border-[#6366F1] transition-all text-left group"
             >
-              <div
-                className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0"
-                style={{ backgroundColor: person.avatarColor }}
-              >
-                {person.avatarInitials}
-              </div>
+              {person.photo_url
+                ? <img src={person.photo_url} alt={person.name} className="w-12 h-12 rounded-xl object-cover flex-shrink-0" />
+                : <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0" style={{ backgroundColor: person.avatar_color }}>{person.avatar_initials}</div>
+              }
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <p className="font-semibold text-[#0F172A] text-sm truncate">{person.name}</p>
@@ -353,8 +355,8 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
                 </div>
                 <p className="text-xs text-[#64748B] truncate mb-2">{person.headline}</p>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs font-semibold text-[#0F172A] tabular-nums">${person.pricePerMin}/min</span>
-                  {person.availableToday && (
+                  <span className="text-xs font-semibold text-[#0F172A] tabular-nums">${person.price_per_min}/min</span>
+                  {person.available_today && (
                     <span className="text-xs text-emerald-600 font-medium flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block" />
                       Available today
