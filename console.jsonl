@@ -387,3 +387,74 @@
 {"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792395449146}
 {"level":"debug","message":"[vite] hot updated: /src/pages/DiscoverPage.tsx","timestamp":1792395449151}
 {"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792395449151}
+{"level":"debug","message":"[vite] connected.","timestamp":1792417206520}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792417740948}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792417787356}
+{"level":"debug","message":"[vite] connected.","timestamp":1792417821821}
+{"level":"debug","message":"[vite] hot updated: /src/pages/CalendarPage.tsx","timestamp":1792418017421}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792418017421}
+{"level":"debug","message":"[vite] hot updated: /src/pages/CalendarPage.tsx","timestamp":1792418103381}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792418103381}
+{"level":"debug","message":"[vite] hot updated: /src/pages/CalendarPage.tsx","timestamp":1792418103616}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792418103616}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792419689969}
+{"level":"debug","message":"[vite] connected.","timestamp":1792419721533}
+{"level":"debug","message":"[vite] connected.","timestamp":1792419741907}
+{"level":"debug","message":"[vite] connected.","timestamp":1792420122698}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420479207}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420518838}
+{"level":"debug","message":"[vite] connected.","timestamp":1792420549076}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420557463}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420571721}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420582515}
+{"level":"debug","message":"[vite] connected.","timestamp":1792420620839}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792420925951}
+{"level":"debug","message":"[vite] connected.","timestamp":1792420930530}
+{"level":"debug","message":"[vite] connected.","timestamp":1792420931378}
+{"level":"error","message":"[vite] failed to connect to websocket.\nyour current setup:\n  (browser) i93qz56ujudlit829gkef.preview.studio.arc.io/ <--[HTTP]--> localhost:5173/ (server)\n  (browser) i93qz56ujudlit829gkef.preview.studio.arc.io:/ <--[WebSocket (failing)]--> localhost:5173/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr .","timestamp":1792421019918}
+{"level":"debug","message":"[vite] hot updated: /src/pages/DiscoverPage.tsx","timestamp":1792421185096}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792421185096}
+{"level":"debug","message":"[vite] hot updated: /src/pages/DiscoverPage.tsx","timestamp":1792421247728}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792421247728}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792421588701}
+{"level":"debug","message":"[vite] connected.","timestamp":1792421673071}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792421769635}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422261467}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422261468}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422408193}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422408193}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422408194}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422408195}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422408195}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422408195}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422482957}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422482957}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422483600}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422483601}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422821557}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422821557}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422850991}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422850991}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422913453}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422913454}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422913456}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422913456}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422960814}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422960814}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792422990608}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792422990608}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423174204}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423174204}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423174838}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423174838}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423245321}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423245321}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423251543}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423251543}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423386142}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423386142}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423389968}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423389968}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423537855}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423537855}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792424173792}

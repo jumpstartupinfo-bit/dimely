@@ -69,8 +69,6 @@ function buildDay(offset: number): CalendarDay {
   }
 }
 
-// Build 7-day window once at module level — safe as a stable constant
-const SEVEN_DAYS: CalendarDay[] = Array.from({ length: 7 }, (_, i) => buildDay(i))
 // Stable calendar header values computed once at module load
 const NOW_UTC = new Date()
 const CALENDAR_MONTH_LABEL = `${MONTH_NAMES[NOW_UTC.getUTCMonth()]} ${NOW_UTC.getUTCFullYear()}`
@@ -129,8 +127,14 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
 
-  // Calendar state — built once from SEVEN_DAYS constant
-  const [days, setDays] = useState<CalendarDay[]>(SEVEN_DAYS)
+  // Calendar state
+  const [weekOffset, setWeekOffset] = useState(0)
+  const [slotsCache, setSlotsCache] = useState<Record<string, { slots: string[], loaded: boolean }>>({})
+  const days = Array.from({ length: 7 }, (_, i) => {
+    const d = buildDay(weekOffset * 7 + i)
+    const cached = slotsCache[d.isoDate]
+    return cached ? { ...d, slots: cached.slots, slotsLoaded: cached.loaded } : d
+  })
   const [selectedDayIdx, setSelectedDayIdx] = useState(0)
   const [slotsLoading, setSlotsLoading] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
@@ -157,20 +161,15 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
   }, [username])
 
   // Fetch slots for selected day
-  const loadSlots = useCallback(async (dayIdx: number) => {
-    const day = SEVEN_DAYS[dayIdx]
-    if (!day) return
+  const loadSlots = useCallback(async (isoDate: string) => {
+    if (!isoDate) return
     setSlotsLoading(true)
     setSelectedSlot(null)
     try {
-      const res = await profilesApi.availability(username, day.isoDate)
-      setDays((prev) => prev.map((d, i) =>
-        i === dayIdx ? { ...d, slots: res.slots.map(formatSlot), slotsLoaded: true } : d
-      ))
+      const res = await profilesApi.availability(username, isoDate)
+      setSlotsCache((prev) => ({ ...prev, [isoDate]: { slots: res.slots.map(formatSlot), loaded: true } }))
     } catch {
-      setDays((prev) => prev.map((d, i) =>
-        i === dayIdx ? { ...d, slots: [], slotsLoaded: true } : d
-      ))
+      setSlotsCache((prev) => ({ ...prev, [isoDate]: { slots: [], loaded: true } }))
     } finally {
       setSlotsLoading(false)
     }
@@ -178,15 +177,17 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
 
   // Load today's slots once profile is loaded
   useEffect(() => {
-    if (!profile) return
-    async function init() { await loadSlots(0) }
+    if (!profile || !days[0]) return
+    async function init() { await loadSlots(days[0].isoDate) }
     void init()
-  }, [profile, loadSlots])
+  }, [profile, loadSlots]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleSelectDay(idx: number) {
     setSelectedDayIdx(idx)
-    if (!days[idx].slotsLoaded) {
-      void loadSlots(idx)
+    const day = days[idx]
+    if (!day) return
+    if (!day.slotsLoaded) {
+      void loadSlots(day.isoDate)
     } else {
       setSelectedSlot(null)
     }
@@ -459,11 +460,18 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                 <div className="flex items-center justify-between mb-3">
                   <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider">Choose a date</p>
                   <div className="flex items-center gap-1">
-                    <button className="p-1.5 rounded-lg hover:bg-gray-100 text-[#64748B]"><ChevronLeft size={14} /></button>
+                    <button
+                      className="p-1.5 rounded-lg hover:bg-gray-100 text-[#64748B] disabled:opacity-30"
+                      disabled={weekOffset === 0}
+                      onClick={() => { setWeekOffset(w => w - 1); setSelectedDayIdx(0); setSelectedSlot(null) }}
+                    ><ChevronLeft size={14} /></button>
                     <span className="text-xs font-medium text-[#0F172A] px-1">
-                      {CALENDAR_MONTH_LABEL}
+                      {days[0] ? `${MONTH_NAMES[new Date(days[0].isoDate).getMonth()]} ${new Date(days[0].isoDate).getFullYear()}` : CALENDAR_MONTH_LABEL}
                     </span>
-                    <button className="p-1.5 rounded-lg hover:bg-gray-100 text-[#64748B]"><ChevronRight size={14} /></button>
+                    <button
+                      className="p-1.5 rounded-lg hover:bg-gray-100 text-[#64748B]"
+                      onClick={() => { setWeekOffset(w => w + 1); setSelectedDayIdx(0); setSelectedSlot(null) }}
+                    ><ChevronRight size={14} /></button>
                   </div>
                 </div>
                 <div className="grid grid-cols-7 gap-2">

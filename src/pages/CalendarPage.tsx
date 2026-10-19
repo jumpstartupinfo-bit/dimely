@@ -84,10 +84,22 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
   // Sync availability windows from server
   useEffect(() => {
     let cancelled = false
+    function to12(t: string): string {
+      const [h, m] = t.split(':').map(Number)
+      const period = h >= 12 ? 'PM' : 'AM'
+      const hour = h % 12 || 12
+      return `${hour}:${String(m).padStart(2,'0')} ${period}`
+    }
     availabilityApi.get()
       .then((res) => {
         if (!cancelled && res.windows.length > 0) {
-          // Map server windows back to display format (best-effort)
+          setAvailability(AVAILABILITY_SLOTS.map((slot) => {
+            const DAY_MAP: Record<string,number> = {Monday:1,Tuesday:2,Wednesday:3,Thursday:4,Friday:5,Saturday:6,Sunday:0}
+            const dow = DAY_MAP[slot.day]
+            const match = res.windows.find((w) => w.day_of_week === dow)
+            if (match) return { ...slot, enabled: true, start: to12(match.start_time), end: to12(match.end_time) }
+            return { ...slot, enabled: false }
+          }))
         }
       })
       .catch(() => { /* keep defaults */ })

@@ -88,7 +88,7 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
   return (
     <div
       onClick={() => onNavigate('profile', profile.username)}
-      className="bg-white border border-gray-100 rounded-2xl p-5 hover:shadow-lg hover:border-[#A5B4FC] transition-all cursor-pointer group"
+      className="bg-white border border-gray-100 rounded-2xl p-5 hover:shadow-lg hover:border-[#A5B4FC] transition-all cursor-pointer group flex flex-col"
     >
       {/* Header */}
       <div className="flex items-start gap-3 mb-3">
@@ -161,7 +161,7 @@ function PersonCard({ profile, onNavigate }: PersonCardProps) {
 
       <button
         onClick={(e) => { e.stopPropagation(); onNavigate('booking', profile.username) }}
-        className="w-full bg-[#6366F1] hover:bg-[#4F46E5] text-white font-semibold py-3 rounded-xl text-sm transition-all group-hover:shadow-md group-hover:shadow-indigo-100 active:scale-[0.98]"
+        className="mt-auto w-full bg-[#6366F1] hover:bg-[#4F46E5] text-white font-semibold py-3 rounded-xl text-sm transition-all group-hover:shadow-md group-hover:shadow-indigo-100 active:scale-[0.98]"
       >
         Book a call
       </button>
