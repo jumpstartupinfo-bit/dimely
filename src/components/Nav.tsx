@@ -264,15 +264,15 @@ export function Nav({ currentPage, onNavigate, isLoggedIn, onLogout }: NavProps)
               <div className="border-t border-gray-100 my-2" />
 
               {[
-                { label: 'My Dimely', icon: User, page: 'profile' as Page },
-                { label: 'My AI Agent', icon: Bot, page: 'ai-agent' as Page },
-                { label: 'Invite & Earn', icon: UserPlus, page: 'invite' as Page },
-                { label: 'Notifications', icon: Bell, page: 'notifications' as Page },
-                { label: 'Settings', icon: Settings, page: 'settings' as Page },
-              ].map(({ label, icon: Icon, page }) => (
+                { label: 'My Dimely', icon: User, page: 'profile' as Page, username: displayUsername },
+                { label: 'My AI Agent', icon: Bot, page: 'ai-agent' as Page, username: undefined },
+                { label: 'Invite & Earn', icon: UserPlus, page: 'invite' as Page, username: undefined },
+                { label: 'Notifications', icon: Bell, page: 'notifications' as Page, username: undefined },
+                { label: 'Settings', icon: Settings, page: 'settings' as Page, username: undefined },
+              ].map(({ label, icon: Icon, page, username }) => (
                 <button
                   key={page}
-                  onClick={() => { onNavigate(page); setMobileOpen(false) }}
+                  onClick={() => { onNavigate(page, username); setMobileOpen(false) }}
                   className="w-full flex items-center gap-3 px-4 py-3 text-sm text-[#0F172A] hover:bg-gray-50 transition-colors"
                 >
                   <Icon size={18} className="text-[#64748B]" />

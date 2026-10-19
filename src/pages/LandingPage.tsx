@@ -130,8 +130,8 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
           </div>
 
           {/* Right — hero card stack */}
-          <div className="relative flex justify-center lg:justify-end">
-            <div className="relative w-full max-w-sm">
+          <div className="relative flex justify-center lg:justify-end overflow-visible">
+            <div className="relative w-full max-w-sm pb-8">
               {/* Main profile card */}
               <div className="bg-white rounded-3xl shadow-2xl border border-gray-100 p-6 relative z-10">
                 {/* Profile header */}

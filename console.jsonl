@@ -458,3 +458,12 @@
 {"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792423537855}
 {"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792423537855}
 {"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792424173792}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792424789103}
+{"level":"debug","message":"[vite] connected.","timestamp":1792424846476}
+{"level":"debug","message":"[vite] connected.","timestamp":1792425451515}
+{"level":"debug","message":"[vite] hot updated: /src/components/Nav.tsx","timestamp":1792425600861}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792425600861}
+{"level":"debug","message":"[vite] hot updated: /src/pages/LandingPage.tsx","timestamp":1792425945585}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792425945585}
+{"level":"debug","message":"[vite] hot updated: /src/pages/LandingPage.tsx","timestamp":1792425946027}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792425946028}
