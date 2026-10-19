@@ -164,8 +164,10 @@ export const profiles = {
     return request<{ profiles: Profile[]; total: number }>('GET', `/profiles${qStr ? `?${qStr}` : ''}`)
   },
 
-  get: (username: string) =>
-    request<Profile>('GET', `/profiles/${username}`, undefined, { auth: false }),
+  get: async (username: string) => {
+    const res = await request<{ profile: Profile } | Profile>('GET', `/profiles/${username}`, undefined, { auth: false })
+    return ('profile' in res ? res.profile : res)
+  },
 
   availability: (username: string, date: string) =>
     request<{ slots: string[]; timezone: string; blocked?: boolean }>('GET', `/profiles/${username}/availability?date=${date}`),
