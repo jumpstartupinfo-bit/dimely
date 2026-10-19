@@ -1,8 +1,8 @@
 import type { Page } from '../App'
 import { useState } from 'react'
-import { User, Bell, Shield, DollarSign, Video, Mic, ChevronRight, CheckCircle2, LogOut } from 'lucide-react'
-
-
+import { useAuth } from '../context/AuthContext'
+import { profilesApi } from '../lib/api'
+import { User, Bell, Shield, DollarSign, ChevronRight, CheckCircle2, LogOut, Video, Mic } from 'lucide-react'
 
 interface SettingsPageProps {
   onNavigate: (page: Page, username?: string) => void
@@ -18,18 +18,35 @@ const NOTIFICATION_SETTINGS = [
 ]
 
 export function SettingsPage({ onNavigate: _onNavigate, onLogout }: SettingsPageProps) {
+  const { user, profile } = useAuth()
   const [section, setSection] = useState<'main' | 'profile' | 'notifications' | 'billing' | 'security'>('main')
   const [notifs, setNotifs] = useState<Record<string, boolean>>({
     new_booking: true, reminder: true, payment: true, referral: true, ai: true,
   })
-  const [pricePerMin, setPricePerMin] = useState('6')
-  const [videoEnabled, setVideoEnabled] = useState(true)
-  const [voiceEnabled, setVoiceEnabled] = useState(true)
+  const [pricePerMin, setPricePerMin] = useState(String(profile?.price_per_min ?? '6'))
+  const [videoEnabled, setVideoEnabled] = useState(profile?.video_available ?? true)
+  const [voiceEnabled, setVoiceEnabled] = useState(profile?.voice_available ?? true)
   const [saved, setSaved] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
-  function saveProfile() {
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2000)
+  async function saveProfile() {
+    if (!user?.username) return
+    setSaving(true)
+    setSaveError('')
+    try {
+      await profilesApi.update(user.username, {
+        price_per_min: parseFloat(pricePerMin),
+        video_available: videoEnabled,
+        voice_available: voiceEnabled,
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
+    } catch {
+      setSaveError('Failed to save. Please try again.')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const MENU_ITEMS = [
@@ -176,11 +193,13 @@ export function SettingsPage({ onNavigate: _onNavigate, onLogout }: SettingsPage
             </div>
           </div>
 
+          {saveError && <p className="text-sm text-red-500 text-center mb-2">{saveError}</p>}
           <button
-            onClick={saveProfile}
-            className="w-full bg-[#6366F1] hover:bg-[#4F46E5] text-white font-semibold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
+            onClick={() => { void saveProfile() }}
+            disabled={saving}
+            className="w-full bg-[#6366F1] hover:bg-[#4F46E5] disabled:opacity-60 text-white font-semibold py-4 rounded-2xl transition-all flex items-center justify-center gap-2"
           >
-            {saved ? <><CheckCircle2 size={18} /> Saved!</> : 'Save changes'}
+            {saved ? <><CheckCircle2 size={18} /> Saved!</> : saving ? 'Saving...' : 'Save changes'}
           </button>
         </div>
       </div>

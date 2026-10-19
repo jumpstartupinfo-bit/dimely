@@ -174,7 +174,12 @@ export const profiles = {
 
   updateMe: (updates: Partial<Profile>) =>
     request<Profile>('PATCH', '/profiles/me', updates),
+
+  update: (username: string, updates: Partial<Profile>) =>
+    request<{ profile: Profile }>('PATCH', `/profiles/${username}`, updates),
 }
+
+export const profilesApi = profiles
 
 // ─── Bookings ────────────────────────────────────────────────────────────────
 export interface BookingPayload {

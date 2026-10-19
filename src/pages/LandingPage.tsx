@@ -65,7 +65,7 @@ export function LandingPage({ onNavigate }: LandingPageProps) {
 
   useEffect(() => {
     void profilesApi.list({ limit: 6 }).then(r => { setFeaturedPeople(r.profiles) }).catch(() => {})
-  }, [])
+  }, [setFeaturedPeople])
 
   function handleAiSearch(e: React.FormEvent) {
     e.preventDefault()
