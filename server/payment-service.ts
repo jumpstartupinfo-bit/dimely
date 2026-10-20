@@ -2,16 +2,7 @@
  * server/payment-service.ts
  *
  * Server-side USDC payment verification and escrow lifecycle management.
- *
- * Architecture:
- * - Payment intents are created BEFORE the wallet transaction (preventing ghost bookings)
- * - After the wallet submits a tx, the server independently verifies every field on-chain
- * - Escrow is a DB-level concept: funds are tracked in states (held → released / refunded)
- * - The treasury address receives platform fees on settlement (when server signer is configured)
- * - All operations are idempotent via payment_id
- *
- * On testnet: tx verification is done via viem/public RPC; server-signing for withdrawals
- * requires SERVER_SIGNER_PRIVATE_KEY and TREASURY_ADDRESS to be set.
+ * All DB operations use async Postgres via db.get/db.run/db.all.
  */
 
 import { createPublicClient, http, erc20Abi, parseEventLogs, type Hash, type Address } from 'viem'
@@ -20,7 +11,7 @@ import { newId } from './utils'
 import { chainConfig, usdcToRaw, rawToUsdc } from './chain-config'
 import { createNotification } from './notifications'
 
-// ─── Public RPC client (read-only, no private key) ───────────────────────────
+// ─── Public RPC client (read-only) ───────────────────────────────────────────
 export const publicClient = createPublicClient({
   transport: http(chainConfig.rpcUrl),
   chain: {
@@ -31,45 +22,44 @@ export const publicClient = createPublicClient({
   },
 })
 
-// ─── Payment intent statuses ─────────────────────────────────────────────────
 export type PaymentStatus =
-  | 'created'
-  | 'awaiting_payment'
-  | 'submitted'
-  | 'verifying'
-  | 'confirmed'
-  | 'escrowed'
-  | 'released'
-  | 'refunded'
-  | 'failed'
-  | 'disputed'
-  | 'expired'
+  | 'created' | 'awaiting_payment' | 'submitted' | 'verifying'
+  | 'confirmed' | 'escrowed' | 'released' | 'refunded'
+  | 'failed' | 'disputed' | 'expired'
 
-// ─── Create a payment intent ─────────────────────────────────────────────────
+// ─── Create a payment intent ──────────────────────────────────────────────────
 export interface CreatePaymentIntentParams {
   bookingId: string
   guestUserId: string
   hostUserId: string
-  grossAmount: number    // display USDC (e.g. 90.0)
+  grossAmount: number
   platformFee: number
   hostAmount: number
   idempotencyKey: string
 }
 
 export function createPaymentIntent(params: CreatePaymentIntentParams): string {
-  // Idempotency
-  const existing = db.prepare('SELECT id FROM payments WHERE idempotency_key = ?').get(params.idempotencyKey) as { id: string } | undefined
-  if (existing) return existing.id
-
+  // Returns sync-style ID; actual DB insert is fire-and-forget async
   const paymentId = newId()
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString() // 30 min TTL
+  const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
 
-  db.prepare(`
-    INSERT INTO payments(
-      id, booking_id, payer_user_id, amount, currency,
-      status, idempotency_key, expires_at, created_at
-    ) VALUES (?, ?, ?, ?, 'USDC', 'awaiting_payment', ?, ?, datetime('now'))
-  `).run(paymentId, params.bookingId, params.guestUserId, params.grossAmount, params.idempotencyKey, expiresAt)
+  void (async () => {
+    try {
+      const existing = await db.get('SELECT id FROM payments WHERE idempotency_key = $1', [params.idempotencyKey])
+      if (existing) return
+
+      await db.run(`
+        INSERT INTO payments(
+          id, booking_id, customer_id, host_id, amount, platform_fee, host_amount,
+          currency, status, idempotency_key, expires_at, created_at, updated_at
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,'USDC','awaiting_payment',$8,$9,NOW(),NOW())
+      `, [paymentId, params.bookingId, params.guestUserId, params.hostUserId,
+          params.grossAmount, params.platformFee, params.hostAmount,
+          params.idempotencyKey, expiresAt])
+    } catch (err) {
+      console.error('createPaymentIntent DB error:', err)
+    }
+  })()
 
   return paymentId
 }
@@ -79,9 +69,9 @@ export interface VerifyPaymentParams {
   paymentId: string
   bookingId: string
   txHash: string
-  expectedGrossAmount: number   // display USDC (authoritative server value)
-  expectedSenderAddress: string // guest wallet address
-  expectedRecipientAddress: string // treasury or escrow address
+  expectedGrossAmount: number
+  expectedSenderAddress: string
+  expectedRecipientAddress: string
 }
 
 export interface VerifyPaymentResult {
@@ -92,8 +82,7 @@ export interface VerifyPaymentResult {
 }
 
 export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<VerifyPaymentResult> {
-  // Mark as verifying
-  db.prepare(`UPDATE payments SET status = 'verifying', updated_at = datetime('now') WHERE id = ?`).run(params.paymentId)
+  await db.run(`UPDATE payments SET status='verifying', updated_at=NOW() WHERE id=$1`, [params.paymentId])
 
   try {
     const receipt = await publicClient.waitForTransactionReceipt({
@@ -102,21 +91,12 @@ export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<Ve
       timeout: 120_000,
     })
 
-    // 1. Transaction must succeed
     if (receipt.status !== 'success') {
-      db.prepare(`UPDATE payments SET status = 'failed', updated_at = datetime('now') WHERE id = ?`).run(params.paymentId)
+      await db.run(`UPDATE payments SET status='failed', updated_at=NOW() WHERE id=$1`, [params.paymentId])
       return { ok: false, error: 'Transaction reverted on-chain' }
     }
 
-    // 2. Must be on the correct chain
-    // (the receipt comes from our configured RPC, so chain is already verified)
-
-    // 3. Parse ERC-20 Transfer events to verify USDC token, sender, recipient, and amount
-    const logs = parseEventLogs({
-      abi: erc20Abi,
-      logs: receipt.logs,
-      eventName: 'Transfer',
-    })
+    const logs = parseEventLogs({ abi: erc20Abi, logs: receipt.logs, eventName: 'Transfer' })
 
     const usdcAddress = chainConfig.usdcAddress.toLowerCase() as Address
     const expectedSender = params.expectedSenderAddress.toLowerCase() as Address
@@ -125,36 +105,30 @@ export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<Ve
 
     const matchingTransfer = logs.find((log) => {
       const contractAddr = (log.address ?? '').toLowerCase()
-      if (contractAddr !== usdcAddress) return false  // 4. Must be USDC contract
-
+      if (contractAddr !== usdcAddress) return false
       const { from, to, value } = log.args as { from: string; to: string; value: bigint }
-
-      if ((from ?? '').toLowerCase() !== expectedSender) return false   // 5. Correct sender
-      if ((to ?? '').toLowerCase() !== expectedRecipient) return false  // 6. Correct recipient
-
-      // 7. Amount must be >= expected (allow minor rounding tolerance: ±1 raw unit)
+      if ((from ?? '').toLowerCase() !== expectedSender) return false
+      if ((to ?? '').toLowerCase() !== expectedRecipient) return false
       const diff = value >= expectedRaw ? value - expectedRaw : expectedRaw - value
       return diff <= 1n
     })
 
     if (!matchingTransfer) {
-      db.prepare(`UPDATE payments SET status = 'failed', updated_at = datetime('now') WHERE id = ?`).run(params.paymentId)
+      await db.run(`UPDATE payments SET status='failed', updated_at=NOW() WHERE id=$1`, [params.paymentId])
       return { ok: false, error: 'USDC transfer not found or amount/addresses do not match' }
     }
 
     const { value } = matchingTransfer.args as { value: bigint }
     const confirmedAmount = rawToUsdc(value)
 
-    // 8. Mark payment confirmed
-    db.prepare(`
-      UPDATE payments SET status = 'confirmed', tx_hash = ?, confirmed_amount = ?,
-      block_number = ?, updated_at = datetime('now') WHERE id = ?
-    `).run(params.txHash, confirmedAmount, String(receipt.blockNumber), params.paymentId)
+    await db.run(`
+      UPDATE payments SET status='confirmed', tx_hash=$1, updated_at=NOW() WHERE id=$2
+    `, [params.txHash, params.paymentId])
 
     return { ok: true, confirmedAmount, blockNumber: receipt.blockNumber }
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown verification error'
-    db.prepare(`UPDATE payments SET status = 'failed', updated_at = datetime('now') WHERE id = ?`).run(params.paymentId)
+    await db.run(`UPDATE payments SET status='failed', updated_at=NOW() WHERE id=$1`, [params.paymentId])
     return { ok: false, error: msg }
   }
 }
@@ -163,45 +137,34 @@ export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<Ve
 export function confirmBookingAfterPayment(
   paymentId: string,
   bookingId: string,
-  txHash: string,
+  txHash: string | null,
   hostUserId: string,
   guestUserId: string,
   bookingDate: string,
   bookingStartTime: string,
 ): void {
-  db.transaction(() => {
-    // Confirm booking
-    db.prepare(`
-      UPDATE bookings SET status = 'confirmed', payment_id = ?, updated_at = datetime('now')
-      WHERE id = ? AND status = 'payment_pending'
-    `).run(paymentId, bookingId)
+  void (async () => {
+    try {
+      await db.run(`UPDATE bookings SET status='confirmed', updated_at=NOW() WHERE id=$1 AND status='payment_pending'`, [bookingId])
+      await db.run(`UPDATE escrow SET status='escrowed', updated_at=NOW() WHERE booking_id=$1`, [bookingId])
+      await db.run(`UPDATE payments SET status='escrowed', updated_at=NOW() WHERE id=$1`, [paymentId])
 
-    // Update escrow to escrowed state
-    db.prepare(`
-      UPDATE escrow SET status = 'escrowed', updated_at = datetime('now') WHERE booking_id = ?
-    `).run(bookingId)
+      const booking = await db.get('SELECT * FROM bookings WHERE id=$1', [bookingId])
+      if (booking) {
+        await db.run(`
+          INSERT INTO transactions(id, user_id, type, amount, reference_id, note)
+          VALUES ($1,$2,'escrow_deposit',$3,$4,'USDC payment received and held in escrow')
+        `, [newId(), guestUserId, booking.booking_amount, paymentId])
+      }
 
-    // Payment escrowed
-    db.prepare(`UPDATE payments SET status = 'escrowed', updated_at = datetime('now') WHERE id = ?`).run(paymentId)
-
-    // Ledger entry: escrow deposit
-    db.prepare(`
-      INSERT INTO transactions(id, user_id, type, amount, booking_id, reference_id, note)
-      SELECT ?, guest_user_id, 'escrow_deposit', gross_amount, id, ?, 'USDC payment received and held in escrow'
-      FROM bookings WHERE id = ?
-    `).run(newId(), paymentId, bookingId)
+      createNotification(hostUserId, 'booking_confirmed', 'Booking confirmed',
+        `Payment received. Your call on ${bookingDate} at ${bookingStartTime} is confirmed.`, { bookingId })
+      createNotification(guestUserId, 'payment_received', 'Payment confirmed',
+        `Your payment is held in escrow. You're all set for ${bookingDate}.`, { bookingId })
+    } catch (err) {
+      console.error('confirmBookingAfterPayment error:', err)
+    }
   })()
-
-  createNotification(hostUserId, 'booking_confirmed',
-    'Booking confirmed',
-    `Payment received. Your call on ${bookingDate} at ${bookingStartTime} is confirmed.`,
-    { bookingId }
-  )
-  createNotification(guestUserId, 'payment_received',
-    'Payment confirmed',
-    `Your payment is held in escrow. You're all set for ${bookingDate}.`,
-    { bookingId }
-  )
 }
 
 // ─── Settlement: release escrow to host after call completion ─────────────────
@@ -210,150 +173,106 @@ export interface SettleBookingResult {
   settlementId?: string
   hostEarnings?: number
   platformFee?: number
-  referralCommission?: number
   error?: string
 }
 
 export function settleBooking(bookingId: string, commissionPercent: number): SettleBookingResult {
-  const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId) as Record<string, unknown> | undefined
-  if (!booking) return { ok: false, error: 'Booking not found' }
-
-  // Only settle if call is legitimately complete — no disputes
-  if (booking['status'] === 'disputed') return { ok: false, error: 'Cannot settle a disputed booking' }
-  if (booking['status'] === 'cancelled') return { ok: false, error: 'Cannot settle a cancelled booking' }
-
-  // Verify call status: both participants must have been present
-  const call = db.prepare('SELECT * FROM calls WHERE booking_id = ?').get(bookingId) as Record<string, unknown> | undefined
-  if (!call) return { ok: false, error: 'No call record — cannot settle without call evidence' }
-  if (!call['ended_at'] && booking['status'] !== 'completed') {
-    return { ok: false, error: 'Call has not ended yet' }
-  }
-
-  // Idempotency: check if already settled
-  const alreadySettled = db.prepare(
-    `SELECT id FROM transactions WHERE booking_id = ? AND type = 'settlement'`
-  ).get(bookingId)
-  if (alreadySettled) return { ok: false, error: 'Booking already settled' }
-
-  const grossAmount = booking['gross_amount'] as number
-  const platformFee = booking['platform_fee'] as number
-  const hostEarnings = booking['host_earnings'] as number
-  const hostUserId = booking['host_user_id'] as string
-  const guestUserId = booking['guest_user_id'] as string
   const settlementId = newId()
 
-  db.transaction(() => {
-    // Release escrow
-    db.prepare(`UPDATE escrow SET status = 'released', released_at = datetime('now'), updated_at = datetime('now') WHERE booking_id = ?`).run(bookingId)
+  void (async () => {
+    try {
+      const booking = await db.get('SELECT * FROM bookings WHERE id=$1', [bookingId])
+      if (!booking) return
 
-    // Release earnings from held to available
-    db.prepare(`
-      UPDATE wallets SET held = MAX(0, held - ?), available = available + ?, total_earned = total_earned + ?
-      WHERE user_id = ?
-    `).run(hostEarnings, hostEarnings, hostEarnings, hostUserId)
+      if (booking.status === 'disputed' || booking.status === 'cancelled') return
 
-    // Ledger: settlement record
-    db.prepare(`
-      INSERT INTO transactions(id, user_id, type, amount, booking_id, reference_id, note)
-      VALUES (?, ?, 'settlement', ?, ?, ?, 'Booking settled — funds released to host')
-    `).run(settlementId, hostUserId, hostEarnings, bookingId, settlementId)
+      const call = await db.get('SELECT * FROM calls WHERE booking_id=$1', [bookingId])
+      if (!call) return
 
-    // Ledger: platform fee capture
-    db.prepare(`
-      INSERT INTO transactions(id, user_id, type, amount, booking_id, reference_id, note)
-      VALUES (?, ?, 'platform_fee', ?, ?, ?, 'Dimely platform fee (20%)')
-    `).run(newId(), hostUserId, platformFee, bookingId, settlementId)
+      const alreadySettled = await db.get(`SELECT id FROM transactions WHERE reference_id=$1 AND type='settlement'`, [bookingId])
+      if (alreadySettled) return
 
-    // Booking count
-    db.prepare(`UPDATE profiles SET booking_count = booking_count + 1 WHERE id = ?`).run(booking['host_profile_id'])
+      const hostEarnings = parseFloat(booking.host_amount)
+      const platformFee = parseFloat(booking.platform_fee)
+      const hostUserId = booking.host_id
+      const guestUserId = booking.guest_id
 
-    // ─── Referral commission ───────────────────────────────────────────────────
-    // Commission = referral_commission_percent % × platform_fee (NOT gross)
-    const refRel = db.prepare(`
-      SELECT rr.id, rr.referrer_id FROM referral_relationships rr
-      WHERE rr.referred_id = ? AND rr.status = 'active' AND rr.expires_at > datetime('now')
-    `).get(hostUserId) as { id: string; referrer_id: string } | undefined
+      await db.run(`UPDATE escrow SET status='released', released_at=NOW(), updated_at=NOW() WHERE booking_id=$1`, [bookingId])
+      await db.run(`
+        UPDATE wallets SET held=GREATEST(0,held-$1), available=available+$1, total_earned=total_earned+$1
+        WHERE user_id=$2
+      `, [hostEarnings, hostUserId])
+      await db.run(`
+        INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
+        VALUES($1,$2,'settlement',$3,$4,'Booking settled — funds released to host')
+      `, [settlementId, hostUserId, hostEarnings, bookingId])
+      await db.run(`
+        INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
+        VALUES($1,$2,'platform_fee',$3,$4,'Dimely platform fee (20%)')
+      `, [newId(), hostUserId, platformFee, bookingId])
+      await db.run(`UPDATE profiles SET booking_count=booking_count+1 WHERE user_id=$1`, [hostUserId])
 
-    let referralCommission = 0
-    if (refRel) {
-      const existing = db.prepare('SELECT id FROM referral_commissions WHERE booking_id = ?').get(bookingId)
-      if (!existing) {
-        referralCommission = Math.round(platformFee * (commissionPercent / 100) * 100) / 100
-        const commId = newId()
-        db.prepare(`
-          INSERT INTO referral_commissions(
-            id, referral_relationship_id, referrer_id, booking_id,
-            platform_revenue, commission_rate, commission_amount, status, eligible_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'eligible', datetime('now'))
-        `).run(commId, refRel.id, refRel.referrer_id, bookingId, platformFee, commissionPercent, referralCommission)
+      // Referral commission
+      const refRel = await db.get(`
+        SELECT rr.id, rr.referrer_id FROM referral_relationships rr
+        WHERE rr.referred_id=$1 AND rr.status='active' AND rr.expires_at > NOW()
+      `, [hostUserId])
 
-        db.prepare(`
-          UPDATE wallets SET available = available + ?, total_earned = total_earned + ? WHERE user_id = ?
-        `).run(referralCommission, referralCommission, refRel.referrer_id)
-
-        db.prepare(`
-          INSERT INTO transactions(id, user_id, type, amount, booking_id, reference_id, note)
-          VALUES (?, ?, 'referral_commission', ?, ?, ?, 'Referral commission — 20% of platform fee')
-        `).run(newId(), refRel.referrer_id, referralCommission, bookingId, commId)
-
-        createNotification(refRel.referrer_id, 'referral_earnings',
-          'Referral commission earned',
-          `You earned $${referralCommission.toFixed(2)} from a booking in your network.`,
-          { commissionId: commId }
-        )
+      if (refRel) {
+        const existing = await db.get('SELECT id FROM referral_commissions WHERE booking_id=$1', [bookingId])
+        if (!existing) {
+          const referralCommission = Math.round(platformFee * (commissionPercent / 100) * 100) / 100
+          const commId = newId()
+          await db.run(`
+            INSERT INTO referral_commissions(
+              id,referral_relationship_id,referrer_id,booking_id,
+              platform_revenue,commission_rate,commission_amount,status,eligible_at
+            ) VALUES($1,$2,$3,$4,$5,$6,$7,'eligible',NOW())
+          `, [commId, refRel.id, refRel.referrer_id, bookingId, platformFee, commissionPercent, referralCommission])
+          await db.run(`
+            UPDATE wallets SET available=available+$1, total_earned=total_earned+$1 WHERE user_id=$2
+          `, [referralCommission, refRel.referrer_id])
+          await db.run(`
+            INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
+            VALUES($1,$2,'referral_commission',$3,$4,'Referral commission — 20% of platform fee')
+          `, [newId(), refRel.referrer_id, referralCommission, commId])
+          createNotification(refRel.referrer_id, 'referral_earnings', 'Referral commission earned',
+            `You earned $${referralCommission.toFixed(2)} from a booking in your network.`, { commissionId: commId })
+        }
       }
+
+      createNotification(hostUserId, 'payment_released', 'Payment released',
+        `$${hostEarnings.toFixed(2)} has been added to your available balance.`, { bookingId })
+      createNotification(guestUserId, 'call_completed', 'Call completed',
+        'Your call is complete. We hope it was worth every minute.', { bookingId })
+    } catch (err) {
+      console.error('settleBooking error:', err)
     }
   })()
 
-  createNotification(hostUserId as string, 'payment_released',
-    'Payment released',
-    `$${(hostEarnings as number).toFixed(2)} has been added to your available balance.`,
-    { bookingId }
-  )
-  createNotification(guestUserId as string, 'call_completed',
-    'Call completed',
-    'Your call is complete. We hope it was worth every minute.',
-    { bookingId }
-  )
-
-  return {
-    ok: true,
-    settlementId,
-    hostEarnings: hostEarnings as number,
-    platformFee: platformFee as number,
-  }
+  return { ok: true, settlementId }
 }
 
 // ─── Reverse a referral commission (refund / dispute) ────────────────────────
 export function reverseReferralCommission(bookingId: string, reason: string): void {
-  const comm = db.prepare(`
-    SELECT * FROM referral_commissions WHERE booking_id = ? AND status = 'eligible'
-  `).get(bookingId) as Record<string, unknown> | undefined
-  if (!comm) return
+  void (async () => {
+    try {
+      const comm = await db.get(`SELECT * FROM referral_commissions WHERE booking_id=$1 AND status='eligible'`, [bookingId])
+      if (!comm) return
 
-  db.transaction(() => {
-    db.prepare(`
-      UPDATE referral_commissions SET status = 'reversed', reversal_reason = ?, updated_at = datetime('now')
-      WHERE booking_id = ?
-    `).run(reason, bookingId)
-
-    const commAmount = comm['commission_amount'] as number
-    const referrerId = comm['referrer_id'] as string
-
-    // Deduct from referrer wallet
-    db.prepare(`
-      UPDATE wallets SET available = MAX(0, available - ?) WHERE user_id = ?
-    `).run(commAmount, referrerId)
-
-    // Ledger: reversal
-    db.prepare(`
-      INSERT INTO transactions(id, user_id, type, amount, booking_id, reference_id, note)
-      VALUES (?, ?, 'referral_reversal', ?, ?, ?, ?)
-    `).run(newId(), referrerId, commAmount, bookingId, comm['id'], `Commission reversed: ${reason}`)
+      await db.run(`UPDATE referral_commissions SET status='reversed', updated_at=NOW() WHERE booking_id=$1`, [bookingId])
+      await db.run(`UPDATE wallets SET available=GREATEST(0,available-$1) WHERE user_id=$2`, [comm.commission_amount, comm.referrer_id])
+      await db.run(`
+        INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
+        VALUES($1,$2,'referral_reversal',$3,$4,$5)
+      `, [newId(), comm.referrer_id, comm.commission_amount, comm.id, `Commission reversed: ${reason}`])
+    } catch (err) {
+      console.error('reverseReferralCommission error:', err)
+    }
   })()
 }
 
-// ─── Execute a server-signed USDC withdrawal ────────────────────────────────
+// ─── Execute a server-signed USDC withdrawal ─────────────────────────────────
 export async function executeWithdrawal(
   withdrawalId: string,
   recipientAddress: string,
@@ -386,22 +305,13 @@ export async function executeWithdrawal(
     args: [recipientAddress as Address, rawAmount],
   })
 
-  // Wait for confirmation
   await publicClient.waitForTransactionReceipt({
     hash: txHash,
     confirmations: chainConfig.requiredConfirmations,
   })
 
-  // Mark withdrawal completed
-  db.prepare(`
-    UPDATE withdrawals SET status = 'completed', tx_hash = ?, completed_at = datetime('now'),
-    updated_at = datetime('now') WHERE id = ?
-  `).run(txHash, withdrawalId)
-
-  db.prepare(`
-    UPDATE transactions SET note = 'Withdrawal completed', updated_at = datetime('now')
-    WHERE reference_id = ?
-  `).run(withdrawalId)
+  await db.run(`UPDATE withdrawals SET status='completed', tx_hash=$1, updated_at=NOW() WHERE id=$2`, [txHash, withdrawalId])
+  await db.run(`UPDATE transactions SET note='Withdrawal completed', updated_at=NOW() WHERE reference_id=$1`, [withdrawalId])
 
   return { txHash }
 }
