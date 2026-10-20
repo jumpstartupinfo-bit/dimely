@@ -28,40 +28,44 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
       res.status(400).json({ error: 'Username must be 3-30 lowercase letters, numbers, or hyphens' }); return
     }
 
-    const existingEmail = await db.prepare('SELECT id FROM users WHERE email = $1').get(email.toLowerCase())
+    const lowerEmail = email.toLowerCase()
+    const lowerUsername = username.toLowerCase()
+
+    const existingEmail = await db.get('SELECT id FROM users WHERE email = $1', [lowerEmail])
     if (existingEmail) { res.status(409).json({ error: 'An account with this email already exists' }); return }
 
-    const existingUsername = await db.prepare('SELECT id FROM users WHERE username = $1').get(username.toLowerCase())
+    const existingUsername = await db.get('SELECT id FROM users WHERE username = $1', [lowerUsername])
     if (existingUsername) { res.status(409).json({ error: 'That username is already taken' }); return }
 
     const passwordHash = await bcrypt.hash(password, 12)
     const userId = newId()
-    const lowerUsername = username.toLowerCase()
-    const lowerEmail = email.toLowerCase()
 
-    await db.prepare(
-      `INSERT INTO users(id, email, password_hash, name, username) VALUES ($1, $2, $3, $4, $5)`
-    ).run(userId, lowerEmail, passwordHash, name, lowerUsername)
+    await db.run(
+      `INSERT INTO users(id, email, password_hash, name, username) VALUES ($1, $2, $3, $4, $5)`,
+      [userId, lowerEmail, passwordHash, name, lowerUsername]
+    )
 
-    await db.prepare(`INSERT INTO wallets(user_id) VALUES ($1)`).run(userId)
+    await db.run(`INSERT INTO wallets(id, user_id) VALUES ($1, $2)`, [newId(), userId])
 
     const initials = name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
     const colors = ['#6366F1', '#0891B2', '#059669', '#D97706', '#DC2626', '#7C3AED', '#DB2777']
     const color = colors[Math.floor(Math.random() * colors.length)]
     const profileId = newId()
 
-    await db.prepare(
+    await db.run(
       `INSERT INTO profiles(id, user_id, username, name, headline, avatar_initials, avatar_color, published)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-    ).run(profileId, userId, lowerUsername, name, '', initials, color, true)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [profileId, userId, lowerUsername, name, '', initials, color, true]
+    )
 
     const refCode = generateReferralCode(lowerUsername)
     const refSlug = generateReferralSlug(lowerUsername)
-    await db.prepare(
-      `INSERT INTO referral_codes(id, user_id, code, link_slug) VALUES ($1, $2, $3, $4)`
-    ).run(newId(), userId, refCode, refSlug)
+    await db.run(
+      `INSERT INTO referral_codes(id, user_id, code, link_slug) VALUES ($1, $2, $3, $4)`,
+      [newId(), userId, refCode, refSlug]
+    )
 
-    await db.prepare(`INSERT INTO ai_agents(id, user_id) VALUES ($1, $2)`).run(newId(), userId)
+    await db.run(`INSERT INTO ai_agents(id, user_id) VALUES ($1, $2)`, [newId(), userId])
 
     const token = await createSession(userId)
     res.status(201).json({
@@ -80,7 +84,7 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     if (!email || !password) {
       res.status(400).json({ error: 'Email and password are required' }); return
     }
-    const user = await db.prepare('SELECT * FROM users WHERE email = $1').get(email.toLowerCase()) as Record<string, unknown> | undefined
+    const user = await db.get('SELECT * FROM users WHERE email = $1', [email.toLowerCase()]) as Record<string, unknown> | undefined
     if (!user) { res.status(401).json({ error: 'Invalid email or password' }); return }
     const valid = await bcrypt.compare(password, user.password_hash as string)
     if (!valid) { res.status(401).json({ error: 'Invalid email or password' }); return }
@@ -109,8 +113,10 @@ router.post('/logout', requireAuth, async (req: Request, res: Response) => {
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as Record<string, unknown>).user as { id: string }
-    const profile = await db.prepare('SELECT * FROM profiles WHERE user_id = $1').get(user.id)
-    const refCode = await db.prepare('SELECT code, link_slug FROM referral_codes WHERE user_id = $1').get(user.id) as { code: string; link_slug: string } | undefined
+    const profile = await db.get('SELECT * FROM profiles WHERE user_id = $1', [user.id])
+    const refCode = await db.get(
+      'SELECT code, link_slug FROM referral_codes WHERE user_id = $1', [user.id]
+    ) as { code: string; link_slug: string } | undefined
     res.json({ user, profile, referralCode: refCode?.code, referralSlug: refCode?.link_slug })
   } catch (err) {
     console.error('/me error:', err)
