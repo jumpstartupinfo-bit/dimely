@@ -17,14 +17,15 @@ export async function createSession(userId: string): Promise<string> {
   const tokenHash = hashToken(token)
   const expiresAt = new Date(Date.now() + SESSION_DURATION_DAYS * 86400_000).toISOString()
   const id = crypto.randomUUID()
-  await db.prepare(
-    `INSERT INTO sessions(id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`
-  ).run(id, userId, tokenHash, expiresAt)
+  await db.run(
+    `INSERT INTO sessions(id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)`,
+    [id, userId, tokenHash, expiresAt]
+  )
   return token
 }
 
 export async function deleteSession(token: string): Promise<void> {
-  await db.prepare('DELETE FROM sessions WHERE token_hash = $1').run(hashToken(token))
+  await db.run('DELETE FROM sessions WHERE token_hash = $1', [hashToken(token)])
 }
 
 export interface AuthUser {
@@ -36,12 +37,12 @@ export interface AuthUser {
 }
 
 export async function getSessionUser(token: string): Promise<AuthUser | null> {
-  const row = await db.prepare(`
+  const row = await db.get(`
     SELECT u.id, u.email, u.name, u.username, u.role
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = $1 AND s.expires_at > NOW()
-  `).get(hashToken(token)) as AuthUser | undefined
+  `, [hashToken(token)]) as AuthUser | undefined
   return row ?? null
 }
 
