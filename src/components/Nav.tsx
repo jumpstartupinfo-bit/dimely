@@ -74,6 +74,39 @@ export function Nav({ currentPage, onNavigate, isLoggedIn, onLogout }: NavProps)
 
   const isApp = currentPage !== 'landing'
 
+  // For app pages when not logged in, show a minimal nav with sign-in button
+  if (isApp && !isLoggedIn) {
+    return (
+      <header className="fixed top-0 left-0 right-0 z-50 bg-white border-b border-gray-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+          <button onClick={() => onNavigate('landing')} className="flex items-center">
+            <Logo size="sm" />
+          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => onNavigate('discover')}
+              className="text-sm font-medium text-[#64748B] hover:text-[#0F172A] transition-colors px-4 py-2"
+            >
+              Discover
+            </button>
+            <button
+              onClick={() => onNavigate('onboarding')}
+              className="text-sm font-medium text-[#64748B] hover:text-[#0F172A] transition-colors px-4 py-2"
+            >
+              Sign in
+            </button>
+            <button
+              onClick={() => onNavigate('onboarding')}
+              className="bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-colors"
+            >
+              Create your Dimely
+            </button>
+          </div>
+        </div>
+      </header>
+    )
+  }
+
   if (!isApp) {
     return (
       <header className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-sm border-b border-gray-100">
