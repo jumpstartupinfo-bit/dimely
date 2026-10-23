@@ -63,7 +63,9 @@ async function pgTransaction<T>(fn: () => Promise<T>): Promise<T> {
 const pgDb = {
   prepare: (sql: string) => makePgStatement(sql),
   query:   (sql: string) => makePgStatement(sql),
-  run: (sql: string, ...params: unknown[]) => pgQuery(sql, params).then(() => undefined),
+  get: (sql: string, params: unknown[] = []) => pgQuery(sql, params).then((rows) => rows[0] ?? undefined),
+  all: (sql: string, params: unknown[] = []) => pgQuery(sql, params),
+  run: (sql: string, params: unknown[] = []) => pgQuery(sql, params).then(() => undefined),
   transaction: <T>(fn: () => Promise<T>) => pgTransaction(fn),
 }
 
