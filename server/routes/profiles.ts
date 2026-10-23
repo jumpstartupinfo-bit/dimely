@@ -19,14 +19,16 @@ async function computeAvailability(profileId: string): Promise<{ availableToday:
     const dow = d.getUTCDay()
     const dateStr = isoDate(d)
 
-    const windows = await db.prepare(
-      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`
-    ).all(profileId, dow) as Array<{ start_time: string; end_time: string }>
+    const windows = await db.all(
+      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`,
+      [profileId, dow]
+    ) as Array<{ start_time: string; end_time: string }>
     if (windows.length === 0) continue
 
-    const booked = await db.prepare(
-      `SELECT start_time FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
-    ).all(profileId, dateStr) as Array<{ start_time: string }>
+    const booked = await db.all(
+      `SELECT start_time FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`,
+      [profileId, dateStr]
+    ) as Array<{ start_time: string }>
     const bookedSet = new Set(booked.map((r) => r.start_time))
 
     for (const w of windows) {
@@ -133,13 +135,15 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     const lim = Math.min(Number(limit), 50)
     const off = Number(offset)
 
-    const rows = await db.prepare(
-      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where} ORDER BY p.booking_count DESC LIMIT $${pi} OFFSET $${pi + 1}`
-    ).all(...params, lim, off) as Record<string, unknown>[]
+    const rows = await db.all(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where} ORDER BY p.booking_count DESC LIMIT $${pi} OFFSET $${pi + 1}`,
+      [...params, lim, off]
+    ) as Record<string, unknown>[]
 
-    const countRow = await db.prepare(
-      `SELECT COUNT(*) as total FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where}`
-    ).get(...params) as { total: string | number }
+    const countRow = await db.get(
+      `SELECT COUNT(*) as total FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where}`,
+      params
+    ) as { total: string | number }
 
     const profiles = await Promise.all(
       rows.map(async (r) => {
@@ -163,9 +167,10 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
 router.get('/:username', optionalAuth, async (req: Request, res: Response) => {
   try {
     const reqUser = (req as Record<string, unknown>).user as { id: string } | undefined
-    const row = await db.prepare(
-      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.username = $1`
-    ).get(req.params.username) as Record<string, unknown> | undefined
+    const row = await db.get(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.username = $1`,
+      [req.params.username]
+    ) as Record<string, unknown> | undefined
 
     if (!row) { res.status(404).json({ error: 'Profile not found' }); return }
     if (!row.published && (!reqUser || reqUser.id !== row.user_id)) {
@@ -184,9 +189,10 @@ router.get('/:username', optionalAuth, async (req: Request, res: Response) => {
 router.patch('/:username', requireAuth, async (req: Request, res: Response) => {
   try {
     const reqUser = (req as Record<string, unknown>).user as { id: string }
-    const profile = await db.prepare(
-      `SELECT id, user_id FROM profiles WHERE username = $1`
-    ).get(req.params.username) as { id: string; user_id: string } | undefined
+    const profile = await db.get(
+      `SELECT id, user_id FROM profiles WHERE username = $1`,
+      [req.params.username]
+    ) as { id: string; user_id: string } | undefined
 
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
     if (profile.user_id !== reqUser.id) { res.status(403).json({ error: 'Forbidden' }); return }
@@ -208,11 +214,12 @@ router.patch('/:username', requireAuth, async (req: Request, res: Response) => {
 
     if (sets.length === 0) { res.status(400).json({ error: 'Nothing to update' }); return }
     vals.push(profile.id)
-    await db.prepare(`UPDATE profiles SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${pi}`).run(...vals)
+    await db.run(`UPDATE profiles SET ${sets.join(', ')}, updated_at = NOW() WHERE id = $${pi}`, vals)
 
-    const updated = await db.prepare(
-      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.id = $1`
-    ).get(profile.id) as Record<string, unknown>
+    const updated = await db.get(
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE p.id = $1`,
+      [profile.id]
+    ) as Record<string, unknown>
     res.json({ profile: buildProfileShape(updated) })
   } catch (err) {
     console.error('PATCH /profiles/:username error:', err)
@@ -224,9 +231,10 @@ router.patch('/:username', requireAuth, async (req: Request, res: Response) => {
 router.get('/:username/availability', async (req: Request, res: Response) => {
   try {
     const { date } = req.query
-    const profile = await db.prepare(
-      `SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = $1 AND published = true`
-    ).get(req.params.username) as Record<string, unknown> | undefined
+    const profile = await db.get(
+      `SELECT id, timezone, price_per_min, min_duration, max_duration FROM profiles WHERE username = $1 AND published = true`,
+      [req.params.username]
+    ) as Record<string, unknown> | undefined
 
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
     if (!date) { res.status(400).json({ error: 'date query param required' }); return }
@@ -235,15 +243,17 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
     const d = new Date(dateStr + 'T00:00:00Z')
     const dow = d.getUTCDay()
 
-    const windows = await db.prepare(
-      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`
-    ).all(profile.id, dow) as Array<{ start_time: string; end_time: string }>
+    const windows = await db.all(
+      `SELECT start_time, end_time FROM availability WHERE profile_id = $1 AND day_of_week = $2`,
+      [profile.id, dow]
+    ) as Array<{ start_time: string; end_time: string }>
 
     if (windows.length === 0) { res.json({ slots: [] }); return }
 
-    const booked = await db.prepare(
-      `SELECT start_time, duration_mins FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`
-    ).all(profile.id, dateStr) as Array<{ start_time: string; duration_mins: number }>
+    const booked = await db.all(
+      `SELECT start_time, duration_mins FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`,
+      [profile.id, dateStr]
+    ) as Array<{ start_time: string; duration_mins: number }>
 
     const minDur = Number(profile.min_duration ?? 15)
     const blockedSlots = new Set<string>()
@@ -275,6 +285,31 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
   } catch (err) {
     console.error('GET /profiles/:username/availability error:', err)
     res.status(500).json({ error: 'Failed to load availability' })
+  }
+})
+
+// ─── PATCH /api/profiles/:username/name ───────────────────────────────────────
+router.patch('/:username/name', requireAuth, async (req: Request, res: Response) => {
+  try {
+    const reqUser = (req as Record<string, unknown>).user as { id: string }
+    const profile = await db.get(
+      `SELECT id, user_id FROM profiles WHERE username = $1`,
+      [req.params.username]
+    ) as { id: string; user_id: string } | undefined
+
+    if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
+    if (profile.user_id !== reqUser.id) { res.status(403).json({ error: 'Forbidden' }); return }
+
+    const { name } = req.body
+    if (!name?.trim()) { res.status(400).json({ error: 'Name is required' }); return }
+
+    await db.run(`UPDATE profiles SET name = $1, updated_at = NOW() WHERE id = $2`, [name.trim(), profile.id])
+    await db.run(`UPDATE users SET name = $1 WHERE id = $2`, [name.trim(), reqUser.id])
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('PATCH /profiles/:username/name error:', err)
+    res.status(500).json({ error: 'Failed to update name' })
   }
 })
 
