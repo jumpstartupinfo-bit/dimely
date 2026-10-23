@@ -14,12 +14,16 @@ export function slugify(text: string): string {
 }
 
 export function generateReferralCode(username: string): string {
-  const suffix = crypto.randomBytes(3).toString('hex').toUpperCase()
+  const arr = new Uint8Array(3)
+  crypto.getRandomValues(arr)
+  const suffix = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase()
   return `DIMELY-${username.toUpperCase().slice(0, 6)}-${suffix}`
 }
 
 export function generateReferralSlug(username: string): string {
-  const suffix = crypto.randomBytes(3).toString('hex').toLowerCase()
+  const arr = new Uint8Array(3)
+  crypto.getRandomValues(arr)
+  const suffix = Array.from(arr).map(b => b.toString(16).padStart(2, '0')).join('').toLowerCase()
   return `${username.toLowerCase()}-${suffix}`
 }
 
@@ -51,8 +55,8 @@ export function isReferralActive(expiresAt: string): boolean {
 // Simple timezone-aware slot check: convert host local time to UTC
 export function localTimeToUtc(date: string, time: string, timezone: string): Date {
   // Use Intl to resolve timezone offset
-  const [year, month, day] = date.split('-').map(Number)
   const [hour, minute] = time.split(':').map(Number)
+  const [year, month, day] = date.split('-').map(Number)
   // Create date string in the given timezone
   const localStr = `${date}T${time}:00`
   // Approximate offset via Intl

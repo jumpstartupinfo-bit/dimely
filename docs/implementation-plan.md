@@ -1,13 +1,3 @@
-Good — I have both issues now. Here's the full list to fix in one build session:
+The "Failed to create booking" is now a server-side crash, not the HTML error (that's fixed). Let me check what Railway logs show for this booking attempt. Check Railway logs for "Booking error:" and paste what follows.
 
-1. **"Unexpected token '<', <!DOCTYPE..." on booking** — the booking intent API call is hitting Vercel instead of Railway (returns HTML). The `BookingFlow.tsx` is calling `/api/bookings/intent` which isn't hitting the Railway URL. Same VITE_API_URL issue for this specific call.
-
-2. **"Failed to create booking"** — the booking creation fails, likely same root cause plus the bookings route still has SQLite issues.
-
-3. **Profile edit "Profile not found"** — `profilesApi.updateMe()` calls `PATCH /profiles/me` which doesn't exist; needs to use `profilesApi.update(username)` instead.
-
-4. **Onboarding back button + "sign in instead" link** — already coded, needs to be confirmed deployed.
-
-5. **PWA manifest** — proper icon and manifest for mobile install.
-
-Any more issues to add before I switch to Build mode?
+Meanwhile let me check the bookings route for what might crash: The bookings route looks correct. The crash is likely in `localTimeToUtc`, `addMinutes`, or `formatUtcDate` in `utils.ts`. Let me check: Line 17: `crypto.randomBytes` — in Bun's runtime, `crypto` is the Web Crypto API which doesn't have `randomBytes`. This crashes on Railway. Also line 54-55 variables `year, month, day` are declared but not used (lint warning). Let me fix:I'm in Plan mode — can't edit. Switch to **Build mode** and I'll apply this fix immediately. The root cause of "Failed to create booking" is `crypto.randomBytes` which doesn't exist in Bun's Web Crypto API. It's used during referral code generation in the signup flow AND potentially in the booking creation path.
