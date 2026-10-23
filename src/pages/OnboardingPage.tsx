@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronRight, CheckCircle2, Video, Mic, Loader2, Eye, EyeOff } from 'lucide-react'
+import { ChevronRight, CheckCircle2, Video, Mic, Loader2, Eye, EyeOff, ArrowLeft } from 'lucide-react'
 import { Logo } from '../components/Logo'
 import { useAuth } from '../context/AuthContext'
 import { ApiError } from '../lib/api'
@@ -47,6 +47,13 @@ export function OnboardingPage({ onNavigate, returnTo }: OnboardingPageProps) {
     setError(null)
     const idx = STEPS.indexOf(step)
     if (idx < STEPS.length - 1) setStep(STEPS[idx + 1])
+  }
+
+  function back() {
+    setError(null)
+    const idx = STEPS.indexOf(step)
+    if (idx > 1) setStep(STEPS[idx - 1])
+    else onNavigate('landing')
   }
 
   async function handleAuth() {
@@ -193,7 +200,10 @@ export function OnboardingPage({ onNavigate, returnTo }: OnboardingPageProps) {
   return (
     <div className="min-h-dvh bg-white flex flex-col" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <div className="h-14 flex items-center justify-between px-4 border-b border-gray-100">
-        <Logo size="sm" />
+        <button onClick={back} className="flex items-center gap-1 text-sm text-[#64748B] hover:text-[#0F172A] transition-colors">
+          <ArrowLeft size={16} />
+          Back
+        </button>
         <p className="text-sm text-[#64748B] font-medium">{stepLabel[step]}</p>
         <button onClick={() => onNavigate('landing')} className="text-sm text-[#64748B] hover:text-[#0F172A]">Cancel</button>
       </div>
@@ -206,6 +216,16 @@ export function OnboardingPage({ onNavigate, returnTo }: OnboardingPageProps) {
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-2xl px-4 py-3 mb-5">
             {error}
+            {(error.toLowerCase().includes('email already') || error.toLowerCase().includes('already exists')) && (
+              <div className="mt-2 pt-2 border-t border-red-200">
+                <button
+                  onClick={() => { setMode('login'); setStep('signup'); setError(null) }}
+                  className="text-[#6366F1] font-semibold text-sm hover:underline"
+                >
+                  Sign in to your existing account instead
+                </button>
+              </div>
+            )}
           </div>
         )}
 
