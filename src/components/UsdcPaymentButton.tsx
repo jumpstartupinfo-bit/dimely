@@ -21,6 +21,7 @@ import {
   useWaitForTransactionReceipt,
   useSwitchChain,
   useReadContract,
+  useDisconnect,
 } from 'wagmi'
 import { ConnectKitButton } from 'connectkit'
 import { erc20Abi } from 'viem'
@@ -91,6 +92,7 @@ type PayState =
 
 export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError }: UsdcPaymentButtonProps) {
   const { address, isConnected, chainId: walletChainId } = useAccount()
+  const { disconnect } = useDisconnect()
   const { switchChain, isPending: isSwitching } = useSwitchChain()
   const { writeContract, data: txHash, isPending: isWalletPending, error: writeError } = useWriteContract()
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash: txHash })
@@ -342,9 +344,17 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
           <div className="w-2 h-2 rounded-full bg-emerald-500" />
           <span className="text-xs font-medium text-[#0F172A]">{formatAddr(address!)}</span>
         </div>
-        {formattedBalance !== null && (
-          <span className="text-xs text-[#64748B] tabular-nums">{formattedBalance} USDC</span>
-        )}
+        <div className="flex items-center gap-3">
+          {formattedBalance !== null && (
+            <span className="text-xs text-[#64748B] tabular-nums">{formattedBalance} USDC</span>
+          )}
+          <button
+            onClick={() => { disconnect(); setPayState('idle'); setIntent(null) }}
+            className="text-xs text-[#6366F1] hover:underline font-medium"
+          >
+            Change
+          </button>
+        </div>
       </div>
 
       {/* Pay button */}
