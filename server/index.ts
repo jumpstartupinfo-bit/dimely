@@ -39,6 +39,8 @@ app.use(cors({
     if (!origin) { cb(null, true); return }
     // Allow any Vercel preview URL for this project
     if (/https:\/\/dimely.*\.vercel\.app$/.test(origin)) { cb(null, true); return }
+    // Allow production custom domain
+    if (origin === 'https://mydimely.com' || origin === 'https://www.mydimely.com') { cb(null, true); return }
     if (allowedOrigins.includes(origin)) { cb(null, true); return }
     cb(null, false)
   },
