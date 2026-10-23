@@ -29,6 +29,13 @@ import { requireChain, getUsdc, buildTxExplorerUrl } from '@/onchain-facts'
 import { parseAmount, Amount, usdcDecimalsFor } from '@/onchain-money'
 import { ApiError } from '../lib/api'
 
+// Use absolute Railway URL in production — relative /api/* hits Vercel HTML
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)
+  ?? (typeof window !== 'undefined' && window.location.hostname !== 'localhost'
+    ? 'https://dimely-production.up.railway.app'
+    : '')
+const PAYMENT_BASE = API_BASE.replace(/\/$/, '') + '/api'
+
 // Arc Testnet chain ID — from the onchain-facts registry
 const ARC_TESTNET_CHAIN_ID = 5042002
 const arcChain = requireChain(ARC_TESTNET_CHAIN_ID)
@@ -113,7 +120,7 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
     setPayState('loading_intent')
     setErrorMsg(null)
     try {
-      const res = await fetch(`/api/bookings/${bookingId}/payment-intent`, {
+      const res = await fetch(`${PAYMENT_BASE}/bookings/${bookingId}/payment-intent`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('dimely_token') ?? ''}`,
         },
@@ -143,7 +150,7 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
       async function verify() {
         setPayState('verifying')
         try {
-          const res = await fetch(`/api/bookings/${bookingId}/verify-payment`, {
+          const res = await fetch(`${PAYMENT_BASE}/bookings/${bookingId}/verify-payment`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

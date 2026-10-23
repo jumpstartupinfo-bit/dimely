@@ -15,8 +15,8 @@ import {
   Loader2,
   X,
 } from 'lucide-react'
-import { getPerson } from '../data/people'
 import { profiles as profilesApi, bookings as bookingsApi } from '../lib/api'
+import type { Profile } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import { v4 as uuidv4 } from 'uuid'
 import { UsdcPaymentButton } from '../components/UsdcPaymentButton'
@@ -78,7 +78,8 @@ function StepIndicator({ current, steps }: { current: Step; steps: Step[] }) {
 
 export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
   const { user } = useAuth()
-  const person = getPerson(username)   // fallback for display while real profile loads
+  const [profile, setProfile] = useState<Profile | null>(null)
+  const [profileLoading, setProfileLoading] = useState(true)
   const [step, setStep] = useState<Step>('date')
   const [selectedDay, setSelectedDay] = useState<(typeof WEEK_DAYS)[0] | null>(null)
   const [slots, setSlots] = useState<string[]>([])
@@ -93,6 +94,15 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
   const [bookingError, setBookingError] = useState<string | null>(null)
   const [bookingCreated, setBookingCreated] = useState(false)
   const [idempotencyKey] = useState(() => uuidv4())
+
+  // Load real profile from API
+  useEffect(() => {
+    setProfileLoading(true)
+    profilesApi.get(username)
+      .then(res => setProfile('profile' in res ? (res as { profile: Profile }).profile : res))
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false))
+  }, [username])
 
   // Auto-create booking record when user reaches payment step (they're authenticated)
   useEffect(() => {
@@ -125,15 +135,23 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
     return () => { cancelled = true }
   }, [selectedDay, username])
 
-  if (!person) {
+  if (profileLoading) {
     return (
       <div className="min-h-dvh flex items-center justify-center">
-        <p className="text-[#64748B]">Person not found</p>
+        <Loader2 size={24} className="animate-spin text-[#6366F1]" />
       </div>
     )
   }
 
-  const price = selectedDuration ? person.pricePerMin * selectedDuration : 0
+  if (!profile) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center">
+        <p className="text-[#64748B]">Profile not found</p>
+      </div>
+    )
+  }
+
+  const price = selectedDuration ? parseFloat(String(profile.price_per_min)) * selectedDuration : 0
   const platformFee = selectedDuration ? Math.round(price * 0.2 * 100) / 100 : 0
 
   function next() {
@@ -210,11 +228,11 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
         <div className="flex items-center gap-2">
           <div
             className="w-7 h-7 rounded-lg flex items-center justify-center text-white font-bold text-xs flex-shrink-0"
-            style={{ backgroundColor: person.avatarColor }}
+            style={{ backgroundColor: profile.avatar_color ?? "#6366F1" }}
           >
-            {person.avatarInitials}
+            {profile.avatar_initials ?? profile.name.slice(0,2).toUpperCase()}
           </div>
-          <span className="text-sm font-semibold text-[#0F172A]">{person.name}</span>
+          <span className="text-sm font-semibold text-[#0F172A]">{profile.name}</span>
         </div>
         <button onClick={() => onNavigate('discover')} className="p-2 text-[#64748B] hover:text-[#0F172A]">
           <X size={18} />
@@ -302,10 +320,10 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
             <h2 className="text-2xl font-bold text-[#0F172A] mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
               How long?
             </h2>
-            <p className="text-sm text-[#64748B] mb-6">${person.pricePerMin}/min · Choose your session length</p>
+            <p className="text-sm text-[#64748B] mb-6">${parseFloat(String(profile.price_per_min))}/min · Choose your session length</p>
             <div className="space-y-3">
               {DURATIONS.map((d) => {
-                const p = person.pricePerMin * d
+                const p = parseFloat(String(profile.price_per_min)) * d
                 return (
                   <button
                     key={d}
@@ -347,7 +365,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
             </h2>
             <p className="text-sm text-[#64748B] mb-6">Choose how you want to connect</p>
             <div className="space-y-3">
-              {person.videoAvailable && (
+              {profile.video_available && (
                 <button
                   onClick={() => setCallType('video')}
                   className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 transition-all ${
@@ -364,7 +382,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
                   {callType === 'video' && <CheckCircle2 size={20} className="text-[#6366F1] ml-auto" />}
                 </button>
               )}
-              {person.voiceAvailable && (
+              {profile.voice_available && (
                 <button
                   onClick={() => setCallType('voice')}
                   className={`w-full flex items-center gap-4 p-5 rounded-2xl border-2 transition-all ${
@@ -391,7 +409,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
             <h2 className="text-2xl font-bold text-[#0F172A] mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
               Your details
             </h2>
-            <p className="text-sm text-[#64748B] mb-6">Help {person.name.split(' ')[0]} prepare for your call</p>
+            <p className="text-sm text-[#64748B] mb-6">Help {profile.name.split(' ')[0]} prepare for your call</p>
             <div className="space-y-4">
               <div>
                 <label className="text-xs font-semibold text-[#64748B] uppercase tracking-wider block mb-2">Your name</label>
@@ -426,7 +444,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
                   <textarea
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
-                    placeholder={`What would you like to discuss with ${person.name.split(' ')[0]}?`}
+                    placeholder={`What would you like to discuss with ${profile.name.split(' ')[0]}?`}
                     rows={4}
                     className="w-full bg-white border border-gray-200 text-[#0F172A] placeholder-[#64748B] pl-10 pr-4 py-3.5 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:border-transparent resize-none"
                   />
@@ -455,13 +473,13 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
               <div className="flex items-center gap-3 pb-4 border-b border-gray-100 mb-4">
                 <div
                   className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0"
-                  style={{ backgroundColor: person.avatarColor }}
+                  style={{ backgroundColor: profile.avatar_color ?? "#6366F1" }}
                 >
-                  {person.avatarInitials}
+                  {profile.avatar_initials ?? profile.name.slice(0,2).toUpperCase()}
                 </div>
                 <div>
-                  <p className="font-semibold text-[#0F172A]">{person.name}</p>
-                  <p className="text-xs text-[#64748B]">{person.headline}</p>
+                  <p className="font-semibold text-[#0F172A]">{profile.name}</p>
+                  <p className="text-xs text-[#64748B]">{profile.headline}</p>
                 </div>
               </div>
               <div className="space-y-2.5">
@@ -482,7 +500,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
             {/* Price breakdown */}
             <div className="bg-[#F8FAFC] rounded-2xl p-5 mb-5 space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-[#64748B]">{selectedDuration} min × ${person.pricePerMin}/min</span>
+                <span className="text-sm text-[#64748B]">{selectedDuration} min × ${parseFloat(String(profile.price_per_min))}/min</span>
                 <span className="text-sm font-medium text-[#0F172A] tabular-nums">${price}</span>
               </div>
               <div className="flex items-center justify-between">
@@ -547,7 +565,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
               Booking confirmed!
             </h2>
             <p className="text-[#64748B] mb-8">
-              Your call with {person.name} is scheduled.
+              Your call with {profile.name} is scheduled.
               {bookingId && <span className="block text-xs text-[#94A3B8] mt-1">Booking #{bookingId.slice(0, 8)}</span>}
             </p>
 
@@ -555,13 +573,13 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
               <div className="flex items-center gap-3 mb-4">
                 <div
                   className="w-11 h-11 rounded-xl flex items-center justify-center text-white font-bold flex-shrink-0"
-                  style={{ backgroundColor: person.avatarColor }}
+                  style={{ backgroundColor: profile.avatar_color ?? "#6366F1" }}
                 >
-                  {person.avatarInitials}
+                  {profile.avatar_initials ?? profile.name.slice(0,2).toUpperCase()}
                 </div>
                 <div>
-                  <p className="font-semibold text-[#0F172A]">{person.name}</p>
-                  <p className="text-xs text-[#64748B]">{person.headline}</p>
+                  <p className="font-semibold text-[#0F172A]">{profile.name}</p>
+                  <p className="text-xs text-[#64748B]">{profile.headline}</p>
                 </div>
               </div>
               <div className="space-y-2 text-sm">

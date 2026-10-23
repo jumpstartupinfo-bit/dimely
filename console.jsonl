@@ -651,3 +651,83 @@
 {"level":"debug","message":"[vite] connected.","timestamp":1792499927692}
 {"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792584603621}
 {"level":"debug","message":"[vite] connected.","timestamp":1792594358054}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792595593703}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792601907377}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792605511223}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792609114265}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792612717494}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792616320574}
+{"level":"debug","message":"[vite] connected.","timestamp":1792616352581}
+{"level":"debug","message":"[vite] connected.","timestamp":1792618460506}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792620263756}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792621377291}
+{"level":"debug","message":"[vite] connected.","timestamp":1792621400947}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792628539188}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792630732598}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792642197062}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792648751472}
+{"level":"debug","message":"[vite] connected.","timestamp":1792648779677}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792651036185}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792652271227}
+{"level":"debug","message":"[vite] connected.","timestamp":1792696592497}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792697255507}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792697471306}
+{"level":"debug","message":"[vite] connected.","timestamp":1792697496391}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792697526594}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792697680649}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792699905887}
+{"level":"log","message":"[vite] server connection lost. Polling for restart...","timestamp":1792738779143}
+{"level":"debug","message":"[vite] connected.","timestamp":1792776698816}
+{"level":"debug","message":"[vite] hot updated: /src/pages/OnboardingPage.tsx","timestamp":1792777271141}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792777271141}
+{"level":"debug","message":"[vite] hot updated: /src/pages/OnboardingPage.tsx","timestamp":1792777274030}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792777274030}
+{"level":"debug","message":"[vite] hot updated: /src/pages/OnboardingPage.tsx","timestamp":1792777278868}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792777278868}
+{"level":"debug","message":"[vite] hot updated: /src/pages/OnboardingPage.tsx","timestamp":1792777284116}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792777284116}
+{"level":"debug","message":"[vite] connected.","timestamp":1792777318869}
+{"level":"debug","message":"[vite] connected.","timestamp":1792777462846}
+{"level":"debug","message":"[vite] connected.","timestamp":1792777689347}
+{"level":"debug","message":"[vite] connected.","timestamp":1792779975412}
+{"level":"debug","message":"[vite] connected.","timestamp":1792781145374}
+{"level":"debug","message":"[vite] connected.","timestamp":1792782307129}
+{"level":"debug","message":"[vite] connected.","timestamp":1792782389368}
+{"level":"debug","message":"[vite] hot updated: /src/components/UsdcPaymentButton.tsx","timestamp":1792782562695}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782562695}
+{"level":"debug","message":"[vite] hot updated: /src/components/UsdcPaymentButton.tsx","timestamp":1792782566752}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782566753}
+{"level":"debug","message":"[vite] hot updated: /src/components/UsdcPaymentButton.tsx","timestamp":1792782570259}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782570259}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792782580750}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782580751}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792782580757}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782580757}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782595823}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782595823}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782596346}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782596346}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782601498}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782601498}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782601664}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782601664}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782606918}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782606918}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782606924}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782606924}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782611694}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782611694}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782611854}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782611854}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782624838}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782624838}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782624844}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782624844}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792782658811}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782658811}
+{"level":"debug","message":"[vite] hot updated: /src/pages/ProfilePage.tsx","timestamp":1792782658812}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782658812}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782660109}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782660109}
+{"level":"debug","message":"[vite] hot updated: /src/pages/BookingFlow.tsx","timestamp":1792782660111}
+{"level":"debug","message":"[vite] hot updated: /src/index.css","timestamp":1792782660111}

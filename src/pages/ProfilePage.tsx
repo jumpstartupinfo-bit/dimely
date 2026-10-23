@@ -227,7 +227,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
     setSaving(true)
     setSaveError('')
     try {
-      const updated = await profilesApi.updateMe({
+      const result = await profilesApi.update(username, {
         name: editName.trim(),
         headline: editHeadline.trim(),
         bio: editBio.trim(),
@@ -235,6 +235,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
         tags: editTags.split(',').map(t => t.trim()).filter(Boolean),
         location: editLocation.trim(),
       })
+      const updated = ('profile' in result ? result.profile : result)
       setProfile(prev => prev ? { ...prev, ...updated } : prev)
       await refreshMe()
       setEditOpen(false)
