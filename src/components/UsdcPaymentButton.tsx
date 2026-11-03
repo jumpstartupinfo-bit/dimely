@@ -53,8 +53,11 @@ function parseOnchainError(err: unknown): string {
   if (msg.includes('user rejected') || msg.includes('user denied')) return 'Transaction cancelled.'
   if (msg.includes('insufficient')) return 'Insufficient USDC balance. Please add funds and try again.'
   if (msg.includes('reverted')) return 'Transaction failed on-chain. Please try again.'
-  if (msg.includes('network') || msg.includes('timeout')) return 'Network error. Please check your connection.'
-  return 'Something went wrong. Please try again.'
+  if (msg.includes('network') || msg.includes('timeout') || msg.includes('fetch') || msg.includes('http request failed')) {
+    return 'Could not reach the payment network. Please check your connection and try again.'
+  }
+  const detail = (err instanceof Error ? err.message : String(err)).split('\n')[0]?.slice(0, 140)
+  return detail ? `Payment could not be sent: ${detail}` : 'Payment could not be sent. Please try again.'
 }
 
 export interface PaymentIntent {
