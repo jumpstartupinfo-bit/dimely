@@ -223,7 +223,8 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
       address: USDC_ADDRESS,
       abi: erc20Abi,
       functionName: 'transfer',
-      args: [intent.recipientAddress as `0x${string}`, parsedAmount.raw],
+      // Lowercase is always accepted by viem; a wrong mixed-case checksum is not.
+      args: [intent.recipientAddress.toLowerCase() as `0x${string}`, parsedAmount.raw],
       chainId: ARC_TESTNET_CHAIN_ID,
     })
   }

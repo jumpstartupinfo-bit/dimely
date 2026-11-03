@@ -19,6 +19,23 @@
 // Registry values — imported at module load time so we never hardcode addresses or RPC URLs.
 // The registry is a pure TypeScript module; Bun can load it directly without Vite.
 import { getChain, getUsdc } from '../src/onchain-facts'
+import { getAddress } from 'viem'
+
+/**
+ * Normalise an address from an env var. Trims whitespace and stray quotes, validates the
+ * shape, and returns the correct EIP-55 checksummed form. A hand-typed mixed-case address
+ * with a wrong checksum is rejected by wallets, so we derive the checksum from lowercase.
+ */
+function normaliseAddress(name: string, raw: string | undefined): string | null {
+  if (!raw) return null
+  const cleaned = raw.trim().replace(/^["']+|["']+$/g, '').trim()
+  if (!/^0x[0-9a-fA-F]{40}$/.test(cleaned)) {
+    // Do not crash the whole API on a bad env value; payments will report it as unconfigured.
+    console.error(`${name} is not a valid 20-byte hex address; payments are disabled until it is fixed`)
+    return null
+  }
+  return getAddress(cleaned.toLowerCase())
+}
 
 export type NetworkEnv = 'testnet' | 'mainnet'
 
@@ -80,7 +97,7 @@ export const chainConfig: ChainConfig = {
   explorerBase: registryChain.explorerBase,
   usdcAddress: registryUsdc.address,
   usdcDecimals: registryUsdc.decimals,
-  treasuryAddress: process.env.TREASURY_ADDRESS ?? null,
+  treasuryAddress: normaliseAddress('TREASURY_ADDRESS', process.env.TREASURY_ADDRESS),
   serverSignerKey: process.env.SERVER_SIGNER_PRIVATE_KEY ?? null,
   minWithdrawalAmount: ENV === 'mainnet' ? 5.0 : 1.0,
   requiredConfirmations: ENV === 'mainnet' ? 2 : 1,
