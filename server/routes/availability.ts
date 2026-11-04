@@ -11,7 +11,14 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
     const profile = await db.prepare('SELECT id FROM profiles WHERE user_id = $1').get(user.id) as { id: string } | undefined
     if (!profile) { res.status(404).json({ error: 'Profile not found' }); return }
     const windows = await db.prepare('SELECT * FROM availability WHERE profile_id = $1 ORDER BY day_of_week, start_time').all(profile.id)
-    const exceptions = await db.prepare('SELECT * FROM availability_exceptions WHERE profile_id = $1 ORDER BY date ASC').all(profile.id)
+    // Exceptions are optional. If that table does not exist yet, still return the working hours
+    // instead of failing the whole request.
+    let exceptions: unknown[] = []
+    try {
+      exceptions = await db.prepare('SELECT * FROM availability_exceptions WHERE profile_id = $1 ORDER BY date ASC').all(profile.id)
+    } catch (err) {
+      console.warn('availability_exceptions unavailable:', err instanceof Error ? err.message : err)
+    }
     res.json({ windows, exceptions })
   } catch (err) {
     console.error('GET /availability error:', err)
@@ -28,12 +35,23 @@ router.put('/windows', requireAuth, async (req: Request, res: Response) => {
     const { windows } = req.body
     if (!Array.isArray(windows)) { res.status(400).json({ error: 'windows array required' }); return }
 
+    // Validate before touching stored data
+    const timeRe = /^([01]\d|2[0-3]):[0-5]\d$/
+    for (const w of windows) {
+      if (!Number.isInteger(w.day_of_week) || w.day_of_week < 0 || w.day_of_week > 6
+        || !timeRe.test(String(w.start_time)) || !timeRe.test(String(w.end_time))
+        || String(w.start_time) >= String(w.end_time)) {
+        res.status(400).json({ error: 'Each window needs a day (0-6) and a start time before its end time.' }); return
+      }
+    }
+
+    // Only the columns every environment has. Extra buffer columns are not written here.
     await db.prepare('DELETE FROM availability WHERE profile_id = $1').run(profile.id)
     for (const w of windows) {
       await db.prepare(
-        `INSERT INTO availability(id, profile_id, day_of_week, start_time, end_time, buffer_before, buffer_after)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`
-      ).run(newId(), profile.id, w.day_of_week, w.start_time, w.end_time, 0, 0)
+        `INSERT INTO availability(id, profile_id, day_of_week, start_time, end_time)
+         VALUES ($1, $2, $3, $4, $5)`
+      ).run(newId(), profile.id, w.day_of_week, w.start_time, w.end_time)
     }
 
     res.json({ ok: true })

@@ -32,12 +32,14 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
   const [bufferMinutes, setBufferMinutes] = useState(10)
   const [savingAvailability, setSavingAvailability] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const todayDate = TODAY_DATE
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([])
 
   async function handleSaveAvailability() {
     setSavingAvailability(true)
     setSaveSuccess(false)
+    setSaveError(null)
     const DAY_MAP: Record<string, number> = {
       Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6, Sunday: 0,
     }
@@ -60,8 +62,8 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
       await availabilityApi.setWindows(windows)
       setSaveSuccess(true)
       setTimeout(() => setSaveSuccess(false), 3000)
-    } catch {
-      // error handled silently — button re-enables
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Could not save your availability. Please try again.')
     } finally {
       setSavingAvailability(false)
     }
@@ -354,6 +356,11 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
             {saveSuccess && (
               <div className="mb-3 text-center text-sm font-medium text-emerald-600 bg-emerald-50 rounded-xl py-2.5">
                 Availability saved successfully
+              </div>
+            )}
+            {saveError && (
+              <div className="mb-3 text-center text-sm font-medium text-red-600 bg-red-50 rounded-xl py-2.5 px-3">
+                {saveError}
               </div>
             )}
             <button
