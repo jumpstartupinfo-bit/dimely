@@ -124,15 +124,12 @@ router.get('/:id/payment-intent', requireAuth, async (req: Request, res: Respons
       res.status(400).json({ error: 'Booking is not awaiting payment', status: booking.status }); return
     }
 
+    // Never fall back to a placeholder address: funds sent there would be lost.
     let treasuryAddress: string
     try {
       treasuryAddress = requireTreasury()
     } catch {
-      if (chainConfig.env === 'testnet') {
-        treasuryAddress = '0x0000000000000000000000000000000000000000'
-      } else {
-        res.status(503).json({ error: 'Payment system not configured.' }); return
-      }
+      res.status(503).json({ error: 'Payments are temporarily unavailable.' }); return
     }
 
     const idempotencyKey = `payment-intent-${booking.id}`
@@ -185,15 +182,12 @@ router.post('/:id/verify-payment', requireAuth, async (req: Request, res: Respon
     const payment = await db.get('SELECT * FROM payments WHERE id = $1 AND booking_id = $2', [paymentId, booking.id])
     if (!payment) { res.status(404).json({ error: 'Payment intent not found' }); return }
 
+    // A booking is only confirmed after the transfer is verified on-chain. No demo shortcut.
     let recipientAddress: string
     try {
       recipientAddress = requireTreasury()
     } catch {
-      if (chainConfig.env === 'testnet') {
-        confirmBookingAfterPayment(paymentId, booking.id, txHash, booking.host_id, booking.guest_id, booking.date, booking.start_time)
-        res.json({ bookingId: booking.id, status: 'confirmed', txHash, demo: true }); return
-      }
-      res.status(503).json({ error: 'Payment system not configured.' }); return
+      res.status(503).json({ error: 'Payments are temporarily unavailable.' }); return
     }
 
     const result = await verifyUsdcPayment({
@@ -216,46 +210,54 @@ router.post('/:id/verify-payment', requireAuth, async (req: Request, res: Respon
   }
 })
 
-// POST /api/bookings/:id/confirm-payment — legacy compatibility
-router.post('/:id/confirm-payment', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user
-    const { txHash } = req.body
-    const booking = await db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id])
-    if (!booking) { res.status(404).json({ error: 'Booking not found' }); return }
-    if (booking.guest_id !== user.id) { res.status(403).json({ error: 'Forbidden' }); return }
-    if (booking.status !== 'payment_pending') { res.status(400).json({ error: 'Booking is not awaiting payment' }); return }
-
-    const idempotencyKey = `payment-intent-${booking.id}`
-    const paymentId = createPaymentIntent({
-      bookingId: booking.id, guestUserId: user.id, hostUserId: booking.host_id,
-      grossAmount: booking.booking_amount, platformFee: booking.platform_fee,
-      hostAmount: booking.host_amount, idempotencyKey,
-    })
-    confirmBookingAfterPayment(paymentId, booking.id, txHash ?? null, booking.host_id, booking.guest_id, booking.date, booking.start_time)
-    res.json({ bookingId: booking.id, status: 'confirmed' })
-  } catch (err) {
-    console.error('Confirm payment error:', err)
-    res.status(500).json({ error: 'Failed to confirm payment.' })
-  }
+// POST /api/bookings/:id/confirm-payment — retired. It confirmed bookings without checking
+// the payment onchain. Payments are confirmed only through /verify-payment.
+router.post('/:id/confirm-payment', requireAuth, (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'This endpoint has been retired. Payments are verified automatically.' })
 })
+
+// Postgres returns NUMERIC columns as strings. The pages read numbers under these names,
+// so map the stored columns to that shape. Amounts are display-only; money decisions
+// stay on the server.
+function toBookingDto(row: any) {
+  return {
+    ...row,
+    guest_user_id: row.guest_id,
+    host_user_id: row.host_id,
+    host_profile_id: row.profile_id,
+    duration: Number(row.duration_mins),
+    duration_mins: Number(row.duration_mins),
+    gross_amount: Number(row.booking_amount),
+    booking_amount: Number(row.booking_amount),
+    platform_fee: Number(row.platform_fee),
+    host_earnings: Number(row.host_amount),
+    host_amount: Number(row.host_amount),
+  }
+}
+
+const BOOKING_SELECT = `
+  SELECT b.*, hp.name AS host_name
+  FROM bookings b
+  LEFT JOIN profiles hp ON hp.id = b.profile_id
+`
 
 // GET /api/bookings
 router.get('/', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user
     const { role } = req.query
+    const withRole = (list: any[], r: 'host' | 'guest') => list.map((x: any) => ({ ...x, role: r }))
     let rows: any[]
     if (role === 'host') {
-      rows = await db.all(`SELECT b.*, 'host' as role FROM bookings b WHERE b.host_id = $1 ORDER BY b.date DESC, b.start_time DESC`, [user.id])
+      rows = withRole(await db.all(`${BOOKING_SELECT} WHERE b.host_id = $1 ORDER BY b.date DESC, b.start_time DESC`, [user.id]), 'host')
     } else if (role === 'guest') {
-      rows = await db.all(`SELECT b.*, 'guest' as role FROM bookings b WHERE b.guest_id = $1 ORDER BY b.date DESC, b.start_time DESC`, [user.id])
+      rows = withRole(await db.all(`${BOOKING_SELECT} WHERE b.guest_id = $1 ORDER BY b.date DESC, b.start_time DESC`, [user.id]), 'guest')
     } else {
-      const asGuest = await db.all(`SELECT b.*, 'guest' as role FROM bookings b WHERE b.guest_id = $1`, [user.id])
-      const asHost = await db.all(`SELECT b.*, 'host' as role FROM bookings b WHERE b.host_id = $1`, [user.id])
+      const asGuest = withRole(await db.all(`${BOOKING_SELECT} WHERE b.guest_id = $1`, [user.id]), 'guest')
+      const asHost = withRole(await db.all(`${BOOKING_SELECT} WHERE b.host_id = $1`, [user.id]), 'host')
       rows = [...asGuest, ...asHost].sort((a, b) => (a.date + a.start_time) < (b.date + b.start_time) ? 1 : -1)
     }
-    res.json({ bookings: rows })
+    res.json({ bookings: rows.map(toBookingDto) })
   } catch (err) {
     console.error('GET /bookings error:', err)
     res.status(500).json({ error: 'Failed to fetch bookings.' })

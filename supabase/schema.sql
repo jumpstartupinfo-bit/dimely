@@ -358,3 +358,6 @@ INSERT INTO platform_config (key, value) VALUES
   ('max_booking_amount',    '10000'),
   ('settlement_delay_hours','24')
 ON CONFLICT (key) DO NOTHING;
+
+-- ─── Booking confirmation emails (sent once per booking) ──────────────────────
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_emailed_at TIMESTAMPTZ;

@@ -37,12 +37,17 @@ function AppInner() {
 
   // Read initial URL to restore page state
   const initialPath = window.location.pathname
-  const initialPage: Page = initialPath === '/discover' ? 'discover' : initialPath.length > 1 ? 'profile' : 'landing'
-  const initialUsername = initialPath.length > 1 && initialPath !== '/discover' ? initialPath.slice(1) : 'aisha-kim'
+  // Call links from booking emails look like /call/<bookingId>
+  const callMatch = initialPath.match(/^\/call\/([^/]+)\/?$/)
+  const initialBookingId = callMatch?.[1] ? decodeURIComponent(callMatch[1]) : undefined
+  const initialPage: Page = callMatch
+    ? 'call'
+    : initialPath === '/discover' ? 'discover' : initialPath.length > 1 ? 'profile' : 'landing'
+  const initialUsername = !callMatch && initialPath.length > 1 && initialPath !== '/discover' ? initialPath.slice(1) : 'aisha-kim'
 
   const [page, setPage] = useState<Page>(initialPage)
   const [activeUsername, setActiveUsername] = useState<string>(initialUsername)
-  const [activeBookingId, setActiveBookingId] = useState<string | undefined>(undefined)
+  const [activeBookingId, setActiveBookingId] = useState<string | undefined>(initialBookingId)
   const [returnTo, setReturnTo] = useState<{ page: Page; username?: string } | undefined>(undefined)
 
   function navigate(targetPage: Page, usernameOrBookingId?: string) {
@@ -64,6 +69,8 @@ function AppInner() {
     // Update URL so profile pages are shareable
     if (targetPage === 'profile' && usernameOrBookingId) {
       window.history.pushState({}, '', `/${usernameOrBookingId}`)
+    } else if (targetPage === 'call' && usernameOrBookingId) {
+      window.history.pushState({}, '', `/call/${encodeURIComponent(usernameOrBookingId)}`)
     } else if (targetPage === 'landing') {
       window.history.pushState({}, '', '/')
     } else if (targetPage === 'discover') {
@@ -137,7 +144,9 @@ function AppInner() {
 
       {page === 'ai-agent' && <AIAgentPage onNavigate={navigate} />}
 
-      {page === 'call' && <CallScreen bookingId={activeBookingId} onNavigate={navigate} />}
+      {page === 'call' && (isLoggedIn
+        ? <CallScreen bookingId={activeBookingId} onNavigate={navigate} />
+        : <OnboardingPage onNavigate={navigate} returnTo={{ page: 'call', username: activeBookingId }} />)}
 
       {page === 'settings' && <SettingsPage onNavigate={navigate} onLogout={handleLogout} />}
 

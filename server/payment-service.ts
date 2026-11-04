@@ -10,6 +10,7 @@ import db from './db'
 import { newId } from './utils'
 import { chainConfig, usdcToRaw, rawToUsdc } from './chain-config'
 import { createNotification } from './notifications'
+import { sendBookingEmails } from './email'
 
 // ─── Public RPC client (read-only) ───────────────────────────────────────────
 export const publicClient = createPublicClient({
@@ -161,6 +162,9 @@ export function confirmBookingAfterPayment(
         `Payment received. Your call on ${bookingDate} at ${bookingStartTime} is confirmed.`, { bookingId })
       createNotification(guestUserId, 'payment_received', 'Payment confirmed',
         `Your payment is held in escrow. You're all set for ${bookingDate}.`, { bookingId })
+
+      // Email the guest and host their call link. Never throws; sent at most once per booking.
+      await sendBookingEmails(bookingId)
     } catch (err) {
       console.error('confirmBookingAfterPayment error:', err)
     }
