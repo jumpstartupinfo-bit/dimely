@@ -184,6 +184,7 @@ CREATE TABLE IF NOT EXISTS transactions (
   currency    TEXT NOT NULL DEFAULT 'USDC',
   status      TEXT NOT NULL DEFAULT 'completed',
   reference   TEXT NOT NULL DEFAULT '',
+  reference_id TEXT,
   tx_hash     TEXT NOT NULL DEFAULT '',
   note        TEXT NOT NULL DEFAULT '',
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -361,3 +362,6 @@ ON CONFLICT (key) DO NOTHING;
 
 -- ─── Booking confirmation emails (sent once per booking) ──────────────────────
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_emailed_at TIMESTAMPTZ;
+
+-- Ledger entries written by the payment service use reference_id
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id TEXT;

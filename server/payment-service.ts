@@ -83,6 +83,21 @@ export interface VerifyPaymentResult {
 }
 
 export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<VerifyPaymentResult> {
+  // A customer never pays from the platform's own wallet. A transfer from the treasury to
+  // itself moves no money, so it must not confirm a booking.
+  if (params.expectedSenderAddress.toLowerCase() === params.expectedRecipientAddress.toLowerCase()) {
+    return { ok: false, error: 'Payments cannot be sent from the platform wallet. Please pay from your own wallet.' }
+  }
+
+  // One transfer can pay for one booking only. Reject a hash already used by another payment.
+  const reused = await db.get(
+    `SELECT id FROM payments WHERE lower(tx_hash) = lower($1) AND id <> $2`,
+    [params.txHash, params.paymentId],
+  )
+  if (reused) {
+    return { ok: false, error: 'This transaction has already been used for another booking.' }
+  }
+
   await db.run(`UPDATE payments SET status='verifying', updated_at=NOW() WHERE id=$1`, [params.paymentId])
 
   try {
@@ -150,12 +165,18 @@ export function confirmBookingAfterPayment(
       await db.run(`UPDATE escrow SET status='escrowed', updated_at=NOW() WHERE booking_id=$1`, [bookingId])
       await db.run(`UPDATE payments SET status='escrowed', updated_at=NOW() WHERE id=$1`, [paymentId])
 
-      const booking = await db.get('SELECT * FROM bookings WHERE id=$1', [bookingId])
-      if (booking) {
-        await db.run(`
-          INSERT INTO transactions(id, user_id, type, amount, reference_id, note)
-          VALUES ($1,$2,'escrow_deposit',$3,$4,'USDC payment received and held in escrow')
-        `, [newId(), guestUserId, booking.booking_amount, paymentId])
+      // The ledger entry is bookkeeping. If it fails, log it, but never stop the customer
+      // from getting their notifications and call link.
+      try {
+        const booking = await db.get('SELECT * FROM bookings WHERE id=$1', [bookingId])
+        if (booking) {
+          await db.run(`
+            INSERT INTO transactions(id, user_id, type, amount, reference_id, note)
+            VALUES ($1,$2,'escrow_deposit',$3,$4,'USDC payment received and held in escrow')
+          `, [newId(), guestUserId, booking.booking_amount, paymentId])
+        }
+      } catch (ledgerErr) {
+        console.error('Ledger entry failed for booking', bookingId, ledgerErr)
       }
 
       createNotification(hostUserId, 'booking_confirmed', 'Booking confirmed',
