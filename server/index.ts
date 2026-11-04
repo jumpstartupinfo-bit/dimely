@@ -16,6 +16,7 @@ import adminRouter from './routes/admin'
 // chain config is loaded at import time to validate env vars early
 import './chain-config'
 import callsRouter from './routes/calls'
+import { startCallSweeper } from './call-sweeper'
 
 const app = express()
 const PORT = process.env.API_PORT ? parseInt(process.env.API_PORT) : 3001
@@ -47,7 +48,14 @@ app.use(cors({
   credentials: true,
 }))
 
-app.use(express.json({ limit: '1mb' }))
+// Keep the exact bytes of each request body. The video service signs the raw body, and the
+// webhook signature can only be checked reliably against those bytes.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, _res, buf) => {
+    ;(req as unknown as { rawBody?: Buffer }).rawBody = buf
+  },
+}))
 
 // Global rate limiter
 app.use('/api/', rateLimit({
@@ -94,6 +102,8 @@ seedDemoProfiles()
     app.listen(PORT, () => {
       console.log(`Dimely API running on http://localhost:${PORT}`)
     })
+    // Judging finished calls and releasing held money needs the production database.
+    if (process.env.DATABASE_URL) startCallSweeper()
   })
 
 export default app

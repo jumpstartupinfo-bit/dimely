@@ -133,4 +133,37 @@ if (!IS_PG && sqliteDb) {
 const db = IS_PG ? pgDb : sqliteDbCompat!
 export default db
 export { pgPool }
+
+/** Queries bound to one connection inside a real database transaction. */
+export interface Tx {
+  get: (sql: string, params?: unknown[]) => Promise<Record<string, any> | undefined>
+  all: (sql: string, params?: unknown[]) => Promise<Record<string, any>[]>
+  run: (sql: string, params?: unknown[]) => Promise<void>
+}
+
+/**
+ * Run `fn` inside BEGIN/COMMIT on a single connection. Every query made through `tx`
+ * shares that connection, so a failure rolls back all of it. (The older `db.transaction`
+ * helper does not bind its queries to the transaction connection.)
+ */
+export async function withTransaction<T>(fn: (tx: Tx) => Promise<T>): Promise<T> {
+  if (!pgPool) throw new Error('withTransaction requires Postgres (DATABASE_URL)')
+  const client = await pgPool.connect()
+  const tx: Tx = {
+    get: async (sql, params = []) => (await client.query(sql, params as any[])).rows[0] ?? undefined,
+    all: async (sql, params = []) => (await client.query(sql, params as any[])).rows,
+    run: async (sql, params = []) => { await client.query(sql, params as any[]) },
+  }
+  try {
+    await client.query('BEGIN')
+    const result = await fn(tx)
+    await client.query('COMMIT')
+    return result
+  } catch (err) {
+    try { await client.query('ROLLBACK') } catch { /* connection already gone */ }
+    throw err
+  } finally {
+    client.release()
+  }
+}
 export type Row = Record<string, unknown>

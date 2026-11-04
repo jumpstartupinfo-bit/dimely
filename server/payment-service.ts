@@ -6,7 +6,7 @@
  */
 
 import { createPublicClient, http, erc20Abi, parseEventLogs, type Hash, type Address } from 'viem'
-import db from './db'
+import db, { withTransaction } from './db'
 import { newId } from './utils'
 import { chainConfig, usdcToRaw, rawToUsdc } from './chain-config'
 import { createNotification } from './notifications'
@@ -39,30 +39,33 @@ export interface CreatePaymentIntentParams {
   idempotencyKey: string
 }
 
-export function createPaymentIntent(params: CreatePaymentIntentParams): string {
-  // Returns sync-style ID; actual DB insert is fire-and-forget async
+/**
+ * Create the payment record for a booking, or return the one that already exists.
+ * Safe to call repeatedly: the same idempotency key always yields the same stored ID,
+ * so the ID handed to the browser is always one that exists in the database.
+ */
+export async function createPaymentIntent(params: CreatePaymentIntentParams): Promise<string> {
+  const existing = await db.get('SELECT id FROM payments WHERE idempotency_key = $1', [params.idempotencyKey])
+  if (existing) return String(existing.id)
+
   const paymentId = newId()
   const expiresAt = new Date(Date.now() + 30 * 60 * 1000).toISOString()
-
-  void (async () => {
-    try {
-      const existing = await db.get('SELECT id FROM payments WHERE idempotency_key = $1', [params.idempotencyKey])
-      if (existing) return
-
-      await db.run(`
-        INSERT INTO payments(
-          id, booking_id, customer_id, host_id, amount, platform_fee, host_amount,
-          currency, status, idempotency_key, expires_at, created_at, updated_at
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,'USDC','awaiting_payment',$8,$9,NOW(),NOW())
-      `, [paymentId, params.bookingId, params.guestUserId, params.hostUserId,
-          params.grossAmount, params.platformFee, params.hostAmount,
-          params.idempotencyKey, expiresAt])
-    } catch (err) {
-      console.error('createPaymentIntent DB error:', err)
-    }
-  })()
-
-  return paymentId
+  try {
+    await db.run(`
+      INSERT INTO payments(
+        id, booking_id, customer_id, host_id, amount, platform_fee, host_amount,
+        currency, status, idempotency_key, expires_at, created_at, updated_at
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,'USDC','awaiting_payment',$8,$9,NOW(),NOW())
+    `, [paymentId, params.bookingId, params.guestUserId, params.hostUserId,
+        params.grossAmount, params.platformFee, params.hostAmount,
+        params.idempotencyKey, expiresAt])
+    return paymentId
+  } catch (err) {
+    // Two requests can race. The unique key makes one of them fail; use the winner's row.
+    const winner = await db.get('SELECT id FROM payments WHERE idempotency_key = $1', [params.idempotencyKey])
+    if (winner) return String(winner.id)
+    throw err
+  }
 }
 
 // ─── Verify a submitted USDC transfer on-chain ───────────────────────────────
@@ -161,9 +164,21 @@ export function confirmBookingAfterPayment(
 ): void {
   void (async () => {
     try {
-      await db.run(`UPDATE bookings SET status='confirmed', updated_at=NOW() WHERE id=$1 AND status='payment_pending'`, [bookingId])
-      await db.run(`UPDATE escrow SET status='escrowed', updated_at=NOW() WHERE booking_id=$1`, [bookingId])
-      await db.run(`UPDATE payments SET status='escrowed', updated_at=NOW() WHERE id=$1`, [paymentId])
+      // Claim the confirmation so it happens once. The host's held balance is increased here,
+      // in the same transaction, because this is the moment the money is actually in escrow.
+      const confirmed = await withTransaction(async (tx) => {
+        const claim = await tx.get(
+          `UPDATE bookings SET status='confirmed', updated_at=NOW()
+           WHERE id=$1 AND status='payment_pending' RETURNING host_id, host_amount`,
+          [bookingId],
+        )
+        if (!claim) return false
+        await tx.run(`UPDATE escrow SET status='escrowed', updated_at=NOW() WHERE booking_id=$1`, [bookingId])
+        await tx.run(`UPDATE payments SET status='escrowed', updated_at=NOW() WHERE id=$1`, [paymentId])
+        await tx.run(`UPDATE wallets SET held = held + $1 WHERE user_id = $2`, [claim.host_amount, claim.host_id])
+        return true
+      })
+      if (!confirmed) return
 
       // The ledger entry is bookkeeping. If it fails, log it, but never stop the customer
       // from getting their notifications and call link.
@@ -201,81 +216,93 @@ export interface SettleBookingResult {
   error?: string
 }
 
-export function settleBooking(bookingId: string, commissionPercent: number): SettleBookingResult {
+/**
+ * Release a completed booking's escrow to the host. Runs as one database transaction and
+ * releases at most once: the escrow row is claimed from 'escrowed', so a repeat call, or a
+ * disputed or refunded booking, does nothing. Only the server's own call finalisation and
+ * release schedule may call this, never a request from the host or the guest.
+ */
+export async function settleBooking(bookingId: string, commissionPercent: number): Promise<SettleBookingResult> {
   const settlementId = newId()
+  const notices: Array<() => void> = []
 
-  void (async () => {
-    try {
-      const booking = await db.get('SELECT * FROM bookings WHERE id=$1', [bookingId])
-      if (!booking) return
+  try {
+    const result = await withTransaction(async (tx) => {
+      const booking = await tx.get('SELECT * FROM bookings WHERE id=$1 FOR UPDATE', [bookingId])
+      if (!booking) return null
+      // Only a call the server has judged as held, and not disputed or cancelled.
+      if (booking.status !== 'completed') return null
 
-      if (booking.status === 'disputed' || booking.status === 'cancelled') return
-
-      const call = await db.get('SELECT * FROM calls WHERE booking_id=$1', [bookingId])
-      if (!call) return
-
-      const alreadySettled = await db.get(`SELECT id FROM transactions WHERE reference_id=$1 AND type='settlement'`, [bookingId])
-      if (alreadySettled) return
+      const claim = await tx.get(
+        `UPDATE escrow SET status='released', released_at=NOW(), updated_at=NOW()
+         WHERE booking_id=$1 AND status='escrowed' RETURNING id`,
+        [bookingId],
+      )
+      if (!claim) return null
 
       const hostEarnings = parseFloat(booking.host_amount)
       const platformFee = parseFloat(booking.platform_fee)
-      const hostUserId = booking.host_id
-      const guestUserId = booking.guest_id
+      const hostUserId = booking.host_id as string
+      const guestUserId = booking.guest_id as string
 
-      await db.run(`UPDATE escrow SET status='released', released_at=NOW(), updated_at=NOW() WHERE booking_id=$1`, [bookingId])
-      await db.run(`
+      await tx.run(`
         UPDATE wallets SET held=GREATEST(0,held-$1), available=available+$1, total_earned=total_earned+$1
         WHERE user_id=$2
       `, [hostEarnings, hostUserId])
-      await db.run(`
+      await tx.run(`
         INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
-        VALUES($1,$2,'settlement',$3,$4,'Booking settled — funds released to host')
+        VALUES($1,$2,'settlement',$3,$4,'Booking settled - funds released to host')
       `, [settlementId, hostUserId, hostEarnings, bookingId])
-      await db.run(`
+      await tx.run(`
         INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
         VALUES($1,$2,'platform_fee',$3,$4,'Dimely platform fee (20%)')
       `, [newId(), hostUserId, platformFee, bookingId])
-      await db.run(`UPDATE profiles SET booking_count=booking_count+1 WHERE user_id=$1`, [hostUserId])
+      await tx.run(`UPDATE profiles SET booking_count=booking_count+1 WHERE user_id=$1`, [hostUserId])
 
-      // Referral commission
-      const refRel = await db.get(`
+      // Referral commission: a share of Dimely's platform revenue, once per booking
+      const refRel = await tx.get(`
         SELECT rr.id, rr.referrer_id FROM referral_relationships rr
         WHERE rr.referred_id=$1 AND rr.status='active' AND rr.expires_at > NOW()
       `, [hostUserId])
 
       if (refRel) {
-        const existing = await db.get('SELECT id FROM referral_commissions WHERE booking_id=$1', [bookingId])
+        const existing = await tx.get('SELECT id FROM referral_commissions WHERE booking_id=$1', [bookingId])
         if (!existing) {
           const referralCommission = Math.round(platformFee * (commissionPercent / 100) * 100) / 100
           const commId = newId()
-          await db.run(`
+          await tx.run(`
             INSERT INTO referral_commissions(
               id,referral_relationship_id,referrer_id,booking_id,
               platform_revenue,commission_rate,commission_amount,status,eligible_at
             ) VALUES($1,$2,$3,$4,$5,$6,$7,'eligible',NOW())
           `, [commId, refRel.id, refRel.referrer_id, bookingId, platformFee, commissionPercent, referralCommission])
-          await db.run(`
+          await tx.run(`
             UPDATE wallets SET available=available+$1, total_earned=total_earned+$1 WHERE user_id=$2
           `, [referralCommission, refRel.referrer_id])
-          await db.run(`
+          await tx.run(`
             INSERT INTO transactions(id,user_id,type,amount,reference_id,note)
-            VALUES($1,$2,'referral_commission',$3,$4,'Referral commission — 20% of platform fee')
+            VALUES($1,$2,'referral_commission',$3,$4,'Referral commission - share of platform fee')
           `, [newId(), refRel.referrer_id, referralCommission, commId])
-          createNotification(refRel.referrer_id, 'referral_earnings', 'Referral commission earned',
-            `You earned $${referralCommission.toFixed(2)} from a booking in your network.`, { commissionId: commId })
+          notices.push(() => createNotification(refRel.referrer_id as string, 'referral_earnings', 'Referral commission earned',
+            `You earned $${referralCommission.toFixed(2)} from a booking in your network.`, { commissionId: commId }))
         }
       }
 
-      createNotification(hostUserId, 'payment_released', 'Payment released',
-        `$${hostEarnings.toFixed(2)} has been added to your available balance.`, { bookingId })
-      createNotification(guestUserId, 'call_completed', 'Call completed',
-        'Your call is complete. We hope it was worth every minute.', { bookingId })
-    } catch (err) {
-      console.error('settleBooking error:', err)
-    }
-  })()
+      notices.push(() => createNotification(hostUserId, 'payment_released', 'Payment released',
+        `$${hostEarnings.toFixed(2)} has been added to your available balance.`, { bookingId }))
+      notices.push(() => createNotification(guestUserId, 'call_completed', 'Call completed',
+        'Your call is complete. We hope it was worth every minute.', { bookingId }))
 
-  return { ok: true, settlementId }
+      return { hostEarnings, platformFee }
+    })
+
+    if (!result) return { ok: false, error: 'Nothing to release for this booking.' }
+    notices.forEach((send) => send())
+    return { ok: true, settlementId, hostEarnings: result.hostEarnings, platformFee: result.platformFee }
+  } catch (err) {
+    console.error('settleBooking error:', err)
+    return { ok: false, error: 'Settlement failed.' }
+  }
 }
 
 // ─── Reverse a referral commission (refund / dispute) ────────────────────────

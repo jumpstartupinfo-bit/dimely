@@ -103,6 +103,8 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
   const [payState, setPayState] = useState<PayState>('idle')
   const [intent, setIntent] = useState<PaymentIntent | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
+  // Bumped to re-run server verification for a transfer that was already sent
+  const [verifyTick, setVerifyTick] = useState(0)
 
   // Read USDC balance on Arc Testnet
   const { data: usdcBalance } = useReadContract({
@@ -180,7 +182,7 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
       }
       void verify()
     }
-  }, [isConfirmed, txHash, intent, address, bookingId, onSuccess, onError])
+  }, [isConfirmed, txHash, intent, address, bookingId, onSuccess, onError, verifyTick])
 
   // Track write errors — async wrapper avoids synchronous setState in effect body
   useEffect(() => {
@@ -295,12 +297,22 @@ export function UsdcPaymentButton({ bookingId, displayPrice, onSuccess, onError 
           <AlertCircle size={18} className="text-red-500 flex-shrink-0 mt-0.5" />
           <p className="text-sm text-red-700">{errorMsg}</p>
         </div>
+        {txHash && (
+          <p className="text-xs text-[#64748B] px-1">
+            Your payment was already sent. Do not pay again. Retry the confirmation below.
+          </p>
+        )}
         <button
-          onClick={() => { setPayState('idle'); setErrorMsg(null) }}
+          onClick={() => {
+            setErrorMsg(null)
+            // If the transfer already went out, only re-check it. Never ask for a second payment.
+            if (txHash) setVerifyTick((t) => t + 1)
+            else setPayState('idle')
+          }}
           className="w-full py-3 rounded-2xl text-sm font-semibold border border-gray-200 text-[#0F172A] flex items-center justify-center gap-2 hover:bg-gray-50 transition-colors"
         >
           <RefreshCw size={15} />
-          Try again
+          {txHash ? 'Retry confirmation' : 'Try again'}
         </button>
       </div>
     )

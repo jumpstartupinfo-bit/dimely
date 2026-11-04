@@ -1,8 +1,9 @@
 import { Router, Request, Response } from 'express'
-import db from '../db'
+import db, { withTransaction } from '../db'
 import { requireAdmin } from '../auth'
 import { newId } from '../utils'
-import { reverseReferralCommission } from '../payment-service'
+import { settleBooking } from '../payment-service'
+import { getReferralCommissionPercent } from '../config'
 
 const router = Router()
 
@@ -250,32 +251,63 @@ router.get('/disputes', requireAdmin, async (req: Request, res: Response) => {
   }
 })
 
+// POST /api/admin/disputes/:id/resolve
+// Body: { decision: 'refund_guest' | 'release_to_host', note?: string }
+// (the older { refundGuest, releaseToHost } flags are still accepted.)
+// A dispute can be resolved once. Money moves inside one transaction.
 router.post('/disputes/:id/resolve', requireAdmin, async (req: Request, res: Response) => {
   try {
     const admin = (req as any).user
-    const { resolution, refundGuest, releaseToHost, note } = req.body
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 2000) : ''
+    const decision: string | null =
+      req.body?.decision === 'refund_guest' || req.body?.refundGuest ? 'refund_guest'
+      : req.body?.decision === 'release_to_host' || req.body?.releaseToHost ? 'release_to_host'
+      : null
+    if (!decision) { res.status(400).json({ error: "Choose a decision: 'refund_guest' or 'release_to_host'." }); return }
 
     const dispute = await db.get('SELECT * FROM disputes WHERE id = $1', [req.params.id])
     if (!dispute) { res.status(404).json({ error: 'Dispute not found' }); return }
     const booking = await db.get('SELECT * FROM bookings WHERE id = $1', [dispute.booking_id])
     if (!booking) { res.status(404).json({ error: 'Booking not found' }); return }
 
-    await db.run(`UPDATE disputes SET status=$1, resolved_by=$2, resolution_note=$3, updated_at=NOW() WHERE id=$4`,
-      [resolution ?? 'resolved', admin.id, note ?? null, dispute.id])
+    const resolved = await withTransaction(async (tx) => {
+      // Claim the dispute so it can only be resolved once.
+      const claim = await tx.get(
+        `UPDATE disputes SET status='resolved', resolved_by=$1, resolved_at=NOW(), resolution=$2, updated_at=NOW()
+         WHERE id=$3 AND status='open' RETURNING id`,
+        [admin.id, `${decision}${note ? `: ${note}` : ''}`, dispute.id],
+      )
+      if (!claim) return 'already_resolved' as const
 
-    if (refundGuest) {
-      await db.run(`UPDATE bookings SET status='refunded', updated_at=NOW() WHERE id=$1`, [booking.id])
-      await db.run(`UPDATE escrow SET status='refunded', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
-      await db.run(`UPDATE wallets SET held=GREATEST(0,held-$1) WHERE user_id=$2`, [booking.host_amount, booking.host_id])
-      reverseReferralCommission(booking.id, `Admin dispute resolution: ${note ?? 'refund to guest'}`)
-    } else if (releaseToHost) {
-      await db.run(`UPDATE bookings SET status='completed', updated_at=NOW() WHERE id=$1`, [booking.id])
-      await db.run(`UPDATE escrow SET status='released', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
-      await db.run(`UPDATE wallets SET held=GREATEST(0,held-$1), available=available+$1, total_earned=total_earned+$1 WHERE user_id=$2`,
-        [booking.host_amount, booking.host_id])
+      const escrow = await tx.get(`SELECT status FROM escrow WHERE booking_id=$1 FOR UPDATE`, [booking.id])
+      if (!escrow || escrow.status !== 'disputed') return 'not_held' as const
+
+      if (decision === 'refund_guest') {
+        await tx.run(`UPDATE bookings SET status='cancelled', outcome='dispute_refund', cancel_reason='dispute_refund', cancelled_at=NOW(), updated_at=NOW() WHERE id=$1`, [booking.id])
+        await tx.run(`UPDATE escrow SET status='refund_pending', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
+        await tx.run(`UPDATE wallets SET held=GREATEST(0,held-$1) WHERE user_id=$2`, [booking.host_amount, booking.host_id])
+        await tx.run(
+          `INSERT INTO refunds(id,booking_id,user_id,amount,reason) VALUES($1,$2,$3,$4,'dispute_refund') ON CONFLICT (booking_id) DO NOTHING`,
+          [newId(), booking.id, booking.guest_id, Number(booking.booking_amount)],
+        )
+      } else {
+        // Put the booking back into the normal release path so the fee and any referral
+        // commission are handled exactly as for any other completed call.
+        await tx.run(`UPDATE bookings SET status='completed', outcome='dispute_release', release_at=NOW(), updated_at=NOW() WHERE id=$1`, [booking.id])
+        await tx.run(`UPDATE escrow SET status='escrowed', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
+      }
+      return 'ok' as const
+    })
+
+    if (resolved === 'already_resolved') { res.status(409).json({ error: 'This dispute has already been resolved.' }); return }
+    if (resolved === 'not_held') { res.status(409).json({ error: 'The payment for this booking is not being held, so there is nothing to decide.' }); return }
+
+    if (decision === 'release_to_host') {
+      const result = await settleBooking(booking.id, getReferralCommissionPercent())
+      if (!result.ok) console.error('Release after dispute failed for booking', booking.id, result.error)
     }
 
-    res.json({ ok: true, disputeId: dispute.id, resolution: resolution ?? 'resolved' })
+    res.json({ ok: true, disputeId: dispute.id, decision })
   } catch (err) {
     console.error('Resolve dispute error:', err)
     res.status(500).json({ error: 'Failed to resolve dispute.' })

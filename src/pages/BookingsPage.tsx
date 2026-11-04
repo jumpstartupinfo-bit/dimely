@@ -30,6 +30,25 @@ function BookingCard({ booking, onNavigate }: { booking: Booking; onNavigate: (p
   const otherName = isHost ? (booking.guest_name ?? 'Guest') : (booking.host_name ?? 'Host')
   const earnings = isHost ? (booking.host_earnings ?? 0) : (booking.gross_amount ?? 0)
 
+  const [reporting, setReporting] = useState(false)
+  const [reason, setReason] = useState('')
+  const [reportState, setReportState] = useState<'idle' | 'sending' | 'sent'>('idle')
+  const [reportError, setReportError] = useState<string | null>(null)
+
+  async function sendReport() {
+    const text = reason.trim()
+    if (!text) { setReportError('Please tell us what went wrong.'); return }
+    setReportState('sending')
+    setReportError(null)
+    try {
+      await bookingsApi.dispute(booking.id, 'Problem with the call', text)
+      setReportState('sent')
+    } catch (err) {
+      setReportError(err instanceof Error ? err.message : 'Could not send your report. Please try again.')
+      setReportState('idle')
+    }
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-gray-100 p-5 hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3 mb-4">
@@ -115,6 +134,48 @@ function BookingCard({ booking, onNavigate }: { booking: Booking; onNavigate: (p
           </button>
         )}
       </div>
+
+      {booking.can_report_problem && reportState !== 'sent' && (
+        <div className="mt-3">
+          {!reporting ? (
+            <button onClick={() => setReporting(true)} className="text-xs font-medium text-[#6366F1] hover:underline">
+              Report a problem with this call
+            </button>
+          ) : (
+            <div className="bg-[#F8FAFC] rounded-xl p-3">
+              <p className="text-xs text-[#64748B] mb-2">
+                Tell us what went wrong. The payment stays held while we review it.
+              </p>
+              <textarea
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                rows={3}
+                maxLength={2000}
+                className="w-full text-sm rounded-lg border border-gray-200 p-2 mb-2 focus:outline-none focus:border-[#6366F1]"
+              />
+              {reportError && <p className="text-xs text-red-500 mb-2">{reportError}</p>}
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { void sendReport() }}
+                  disabled={reportState === 'sending'}
+                  className="flex-1 bg-[#6366F1] hover:bg-[#4F46E5] disabled:opacity-60 text-white font-semibold py-2 rounded-lg text-xs transition-colors"
+                >
+                  {reportState === 'sending' ? 'Sending...' : 'Send report'}
+                </button>
+                <button
+                  onClick={() => { setReporting(false); setReportError(null) }}
+                  className="flex-1 bg-white border border-gray-200 text-[#64748B] font-medium py-2 rounded-lg text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {reportState === 'sent' && (
+        <p className="mt-3 text-xs text-emerald-600">Thanks. We are reviewing your report and the payment stays held in the meantime.</p>
+      )}
     </div>
   )
 }

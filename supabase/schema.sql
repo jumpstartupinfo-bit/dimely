@@ -365,3 +365,40 @@ ALTER TABLE bookings ADD COLUMN IF NOT EXISTS confirmation_emailed_at TIMESTAMPT
 
 -- Ledger entries written by the payment service use reference_id
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS reference_id TEXT;
+
+-- ─── Calls, attendance and refunds ────────────────────────────────────────────
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS outcome TEXT;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS finalized_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS host_token_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS guest_token_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS host_joined_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS guest_joined_at TIMESTAMPTZ;
+ALTER TABLE calls ADD COLUMN IF NOT EXISTS room_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_calls_room ON calls(room_id);
+
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS outcome TEXT;
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS release_at TIMESTAMPTZ;
+
+-- One row per join, written from verified video-service webhooks (session_id is unique)
+CREATE TABLE IF NOT EXISTS call_sessions (
+  session_id  TEXT PRIMARY KEY,
+  booking_id  TEXT NOT NULL REFERENCES bookings(id),
+  user_id     TEXT NOT NULL,
+  role        TEXT NOT NULL,
+  joined_at   TIMESTAMPTZ NOT NULL,
+  left_at     TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_call_sessions_booking ON call_sessions(booking_id);
+
+-- Money owed back to a guest. Paid out by an admin after approval.
+CREATE TABLE IF NOT EXISTS refunds (
+  id          TEXT PRIMARY KEY,
+  booking_id  TEXT NOT NULL UNIQUE REFERENCES bookings(id),
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  amount      NUMERIC(10,2) NOT NULL,
+  reason      TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending_approval',
+  tx_hash     TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

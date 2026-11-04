@@ -1,14 +1,13 @@
 import { Router, Request, Response } from 'express'
-import db from '../db'
+import db, { withTransaction } from '../db'
 import { requireAuth } from '../auth'
 import { newId, calcBookingAmounts, localTimeToUtc, addMinutes, formatUtcTime, formatUtcDate } from '../utils'
-import { getPlatformFeePercent, getReferralCommissionPercent } from '../config'
+import { getPlatformFeePercent } from '../config'
 import { createNotification } from '../notifications'
 import {
   createPaymentIntent,
   verifyUsdcPayment,
   confirmBookingAfterPayment,
-  settleBooking,
 } from '../payment-service'
 import { chainConfig, requireTreasury } from '../chain-config'
 
@@ -101,7 +100,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       VALUES ($1,$2,$3,$4,$5,'held')
     `, [newId(), bookingId, gross, platformFee, hostEarnings])
 
-    await db.run(`UPDATE wallets SET held = held + $1 WHERE user_id = $2`, [hostEarnings, profile.host_user_id])
+    // The host's held balance is increased when the payment is verified, not here.
 
     createNotification(profile.host_user_id, 'new_booking', 'New booking request',
       `${guestName} wants to book a ${duration}-min ${callType} call.`, { bookingId })
@@ -133,7 +132,7 @@ router.get('/:id/payment-intent', requireAuth, async (req: Request, res: Respons
     }
 
     const idempotencyKey = `payment-intent-${booking.id}`
-    const paymentId = createPaymentIntent({
+    const paymentId = await createPaymentIntent({
       bookingId: booking.id,
       guestUserId: user.id,
       hostUserId: booking.host_id,
@@ -232,6 +231,10 @@ function toBookingDto(row: any) {
     platform_fee: Number(row.platform_fee),
     host_earnings: Number(row.host_amount),
     host_amount: Number(row.host_amount),
+    // True while the host's money is still held after a finished call
+    can_report_problem: row.status === 'completed' && row.release_at
+      ? new Date(row.release_at).getTime() > Date.now()
+      : false,
   }
 }
 
@@ -292,17 +295,42 @@ router.post('/:id/cancel', requireAuth, async (req: Request, res: Response) => {
     }
 
     const bookingStart = new Date(`${booking.date}T${booking.start_time}:00Z`)
+    if (bookingStart.getTime() <= Date.now()) {
+      res.status(400).json({ error: 'A call that has started cannot be cancelled. If something went wrong, raise a dispute instead.' }); return
+    }
     const hoursUntil = (bookingStart.getTime() - Date.now()) / 3_600_000
+    const total = Number(booking.booking_amount)
+    const wasPaid = booking.status === 'confirmed'
+    // Nothing to refund if the booking was never paid.
     let refundAmount = 0
-    if (isHost) { refundAmount = booking.booking_amount }
-    else if (hoursUntil >= 24) { refundAmount = booking.booking_amount }
-    else { refundAmount = Math.round(booking.booking_amount * 0.5 * 100) / 100 }
+    if (wasPaid) {
+      refundAmount = (isHost || hoursUntil >= 24) ? total : Math.round(total * 0.5 * 100) / 100
+    }
 
-    await db.run(`UPDATE bookings SET status='cancelled', cancel_reason=$1, cancelled_at=NOW(), updated_at=NOW() WHERE id=$2`, [reason ?? null, booking.id])
-    await db.run(`UPDATE escrow SET status='refunded', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
-    await db.run(`UPDATE wallets SET held=GREATEST(0,held-$1) WHERE user_id=$2`, [booking.host_amount, booking.host_id])
-    await db.run(`INSERT INTO cancellations(id,booking_id,cancelled_by,reason,refund_amount) VALUES($1,$2,$3,$4,$5)`,
-      [newId(), booking.id, user.id, reason ?? null, refundAmount])
+    const cancelled = await withTransaction(async (tx) => {
+      // Claim the cancellation so two requests cannot both cancel and double-adjust balances.
+      const claim = await tx.get(
+        `UPDATE bookings SET status='cancelled', cancel_reason=$1, cancelled_at=NOW(), updated_at=NOW()
+         WHERE id=$2 AND status=$3 RETURNING id`,
+        [reason ?? null, booking.id, booking.status],
+      )
+      if (!claim) return false
+      await tx.run(`UPDATE escrow SET status=$1, updated_at=NOW() WHERE booking_id=$2`, [wasPaid ? 'refund_pending' : 'cancelled', booking.id])
+      if (wasPaid) {
+        // The host's earnings were only counted as held once the booking was paid.
+        await tx.run(`UPDATE wallets SET held=GREATEST(0,held-$1) WHERE user_id=$2`, [booking.host_amount, booking.host_id])
+        if (refundAmount > 0) {
+          await tx.run(
+            `INSERT INTO refunds(id,booking_id,user_id,amount,reason) VALUES($1,$2,$3,$4,$5) ON CONFLICT (booking_id) DO NOTHING`,
+            [newId(), booking.id, booking.guest_id, refundAmount, isHost ? 'cancelled_by_host' : 'cancelled_by_guest'],
+          )
+        }
+      }
+      await tx.run(`INSERT INTO cancellations(id,booking_id,cancelled_by,reason,refund_amount) VALUES($1,$2,$3,$4,$5)`,
+        [newId(), booking.id, user.id, reason ?? null, refundAmount])
+      return true
+    })
+    if (!cancelled) { res.status(409).json({ error: 'This booking was already changed. Please refresh.' }); return }
 
     const notifyUserId = isHost ? booking.guest_id : booking.host_id
     createNotification(notifyUserId, 'booking_cancelled', 'Booking cancelled',
@@ -315,48 +343,51 @@ router.post('/:id/cancel', requireAuth, async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/bookings/:id/complete
-router.post('/:id/complete', requireAuth, async (req: Request, res: Response) => {
-  try {
-    const user = (req as any).user
-    const booking = await db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id])
-    if (!booking) { res.status(404).json({ error: 'Booking not found' }); return }
-    if (booking.host_id !== user.id && booking.guest_id !== user.id) { res.status(403).json({ error: 'Forbidden' }); return }
-    if (!['confirmed', 'in_progress'].includes(booking.status)) {
-      res.status(400).json({ error: 'Booking cannot be completed in its current state' }); return
-    }
-
-    await db.run(`UPDATE bookings SET status='completed', updated_at=NOW() WHERE id=$1`, [booking.id])
-
-    const commissionPercent = getReferralCommissionPercent()
-    const result = settleBooking(booking.id, commissionPercent)
-    if (!result.ok) {
-      res.json({ bookingId: booking.id, status: 'completed', note: result.error }); return
-    }
-
-    res.json({ bookingId: booking.id, status: 'completed', settlementId: result.settlementId, hostEarnings: result.hostEarnings, platformFee: result.platformFee })
-  } catch (err) {
-    console.error('Complete error:', err)
-    res.status(500).json({ error: 'Failed to complete booking.' })
-  }
+// POST /api/bookings/:id/complete - retired. Completion and payout are decided only by the
+// server from verified call attendance, never by a request from the host or the guest.
+router.post('/:id/complete', requireAuth, (_req: Request, res: Response) => {
+  res.status(410).json({ error: 'Calls are completed automatically after they end.' })
 })
 
 // POST /api/bookings/:id/dispute
+// Allowed once the call time has started and only while the money is still held in escrow.
 router.post('/:id/dispute', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as any).user
-    const { reason, details } = req.body
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 200) : ''
+    const details = typeof req.body?.details === 'string' ? req.body.details.trim().slice(0, 2000) : ''
+    if (!reason) { res.status(400).json({ error: 'Please tell us what went wrong.' }); return }
+
     const booking = await db.get('SELECT * FROM bookings WHERE id = $1', [req.params.id])
     if (!booking) { res.status(404).json({ error: 'Booking not found' }); return }
     if (booking.guest_id !== user.id && booking.host_id !== user.id) { res.status(403).json({ error: 'Forbidden' }); return }
+    if (!['confirmed', 'completed'].includes(booking.status)) {
+      res.status(400).json({ error: 'This booking cannot be disputed in its current state.' }); return
+    }
+    const startMs = new Date(`${booking.date}T${booking.start_time}:00Z`).getTime()
+    if (startMs > Date.now()) {
+      res.status(400).json({ error: 'You can raise a problem once the call time has started. To change plans, cancel the booking.' }); return
+    }
 
-    await db.run(`UPDATE bookings SET status='disputed', updated_at=NOW() WHERE id=$1`, [booking.id])
-    await db.run(`UPDATE escrow SET status='disputed', updated_at=NOW() WHERE booking_id=$1`, [booking.id])
-    await db.run(`INSERT INTO disputes(id,booking_id,raised_by,reason,details) VALUES($1,$2,$3,$4,$5)`,
-      [newId(), booking.id, user.id, reason, details ?? null])
+    const opened = await withTransaction(async (tx) => {
+      // Only while the money is still held. Once released, it can no longer be paused here.
+      const claim = await tx.get(
+        `UPDATE escrow SET status='disputed', updated_at=NOW() WHERE booking_id=$1 AND status='escrowed' RETURNING id`,
+        [booking.id],
+      )
+      if (!claim) return false
+      await tx.run(`UPDATE bookings SET status='disputed', updated_at=NOW() WHERE id=$1`, [booking.id])
+      await tx.run(`INSERT INTO disputes(id,booking_id,opened_by,reason,evidence) VALUES($1,$2,$3,$4,$5)`,
+        [newId(), booking.id, user.id, reason, details])
+      return true
+    })
+    if (!opened) {
+      res.status(400).json({ error: 'The payment for this booking is no longer being held, so it cannot be disputed here.' }); return
+    }
 
     res.json({ bookingId: booking.id, status: 'disputed' })
   } catch (err) {
+    console.error('Dispute error:', err)
     res.status(500).json({ error: 'Failed to raise dispute.' })
   }
 })

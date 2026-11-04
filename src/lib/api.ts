@@ -216,6 +216,9 @@ export interface Booking {
   role?: 'host' | 'guest'
   cancelled_at?: string
   completed_at?: string
+  outcome?: string | null
+  release_at?: string | null
+  can_report_problem?: boolean
 }
 
 export const bookings = {
@@ -234,11 +237,38 @@ export const bookings = {
   cancel: (id: string, reason?: string) =>
     request<{ bookingId: string; status: string; refundAmount: number }>('POST', `/bookings/${id}/cancel`, { reason }),
 
-  complete: (id: string) =>
-    request<{ bookingId: string; status: string; hostEarnings: number }>('POST', `/bookings/${id}/complete`),
-
   dispute: (id: string, reason: string, details?: string) =>
     request<{ bookingId: string; status: string }>('POST', `/bookings/${id}/dispute`, { reason, details }),
+}
+
+// ─── Calls ───────────────────────────────────────────────────────────────────
+export interface CallStatus {
+  state: 'too_early' | 'open' | 'ended' | 'unavailable'
+  reason: string | null
+  role: 'host' | 'guest'
+  otherName: string
+  date: string
+  startTime: string
+  duration: number
+  callType: string
+  bookingStatus: string
+  outcome: string | null
+  serverNow: number
+  opensAt: number
+  startsAt: number
+  endsAt: number
+}
+
+export interface CallJoin {
+  url: string
+  token: string
+  role: 'host' | 'guest'
+  expiresAt: number
+}
+
+export const calls = {
+  status: (bookingId: string) => request<CallStatus>('GET', `/calls/${encodeURIComponent(bookingId)}`),
+  join: (bookingId: string) => request<CallJoin>('POST', `/calls/${encodeURIComponent(bookingId)}/join`),
 }
 
 // ─── Earnings ────────────────────────────────────────────────────────────────
@@ -429,20 +459,4 @@ export const admin = {
   config: () => request<{ config: Record<string, string> }>('GET', '/admin/config'),
   updateConfig: (updates: Record<string, string | number | boolean>) => request<{ ok: boolean }>('PATCH', '/admin/config', updates),
   withdrawals: (status?: string) => request<{ withdrawals: unknown[] }>('GET', `/admin/withdrawals${status ? `?status=${status}` : ''}`),
-}
-
-// ─── Calls ───────────────────────────────────────────────────────────────────
-export interface CallInfo {
-  id: string
-  booking_id: string
-  started_at: string | null
-  ended_at: string | null
-  status: string
-}
-
-export const calls = {
-  get: (bookingId: string) =>
-    request<{ call: CallInfo | null; booking: Booking; serverNow: number; msUntilStart: number; role: string }>('GET', `/calls/${bookingId}`),
-  join: (bookingId: string) =>
-    request<{ ok: boolean; role: string }>('POST', `/calls/${bookingId}/join`),
 }
