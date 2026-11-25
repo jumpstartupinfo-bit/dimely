@@ -21,6 +21,27 @@ const AVAILABILITY_SLOTS = [
   { day: 'Sunday', enabled: false, start: '10:00 AM', end: '2:00 PM' },
 ]
 
+function formatTime12(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60)
+  const m = totalMinutes % 60
+  const period = h >= 12 ? 'PM' : 'AM'
+  const hour = h % 12 || 12
+  return `${hour}:${String(m).padStart(2, '0')} ${period}`
+}
+
+function minutesOf(t12: string): number {
+  const [time, period] = t12.split(' ')
+  const [h, m] = time.split(':').map(Number)
+  let hour = h
+  if (period === 'PM' && h !== 12) hour = h + 12
+  if (period === 'AM' && h === 12) hour = 0
+  return hour * 60 + m
+}
+
+// Every half hour across the whole day. A day can end as late as 11:59 PM.
+const START_CHOICES = Array.from({ length: 48 }, (_, i) => formatTime12(i * 30))
+const END_CHOICES = [...START_CHOICES.slice(1), '11:59 PM']
+
 const CURRENT_WEEK = [6, 7, 8, 9, 10, 11, 12]
 const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
 // Stable reference computed once at module load — safe to use in render
@@ -37,9 +58,14 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([])
 
   async function handleSaveAvailability() {
-    setSavingAvailability(true)
     setSaveSuccess(false)
     setSaveError(null)
+    const badDay = availability.find((d) => d.enabled && minutesOf(d.end) <= minutesOf(d.start))
+    if (badDay) {
+      setSaveError(`${badDay.day}: the end time must be after the start time.`)
+      return
+    }
+    setSavingAvailability(true)
     const DAY_MAP: Record<string, number> = {
       Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6, Sunday: 0,
     }
@@ -94,7 +120,9 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
     }
     availabilityApi.get()
       .then((res) => {
-        if (!cancelled && res.windows.length > 0) {
+        if (!cancelled && res.windows.length === 0) {
+          setAvailability((prev) => prev.map((slot) => ({ ...slot, enabled: false })))
+        } else if (!cancelled) {
           setAvailability(AVAILABILITY_SLOTS.map((slot) => {
             const DAY_MAP: Record<string,number> = {Monday:1,Tuesday:2,Wednesday:3,Thursday:4,Friday:5,Saturday:6,Sunday:0}
             const dow = DAY_MAP[slot.day]
@@ -107,6 +135,12 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
       .catch(() => { /* keep defaults */ })
     return () => { cancelled = true }
   }, [])
+
+  function setSlotTime(day: string, field: 'start' | 'end', value: string) {
+    setSaveSuccess(false)
+    setSaveError(null)
+    setAvailability((prev) => prev.map((d) => (d.day === day ? { ...d, [field]: value } : d)))
+  }
 
   function toggleDay(day: string) {
     setAvailability((prev) =>
@@ -320,9 +354,27 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
                     </span>
                     {slot.enabled ? (
                       <div className="flex items-center gap-2 text-sm text-[#64748B]">
-                        <span className="bg-[#F8FAFC] px-3 py-1.5 rounded-lg">{slot.start}</span>
+                        <select
+                          aria-label={`${slot.day} start time`}
+                          value={slot.start}
+                          onChange={(e) => setSlotTime(slot.day, 'start', e.target.value)}
+                          className="bg-[#F8FAFC] border border-gray-100 text-[#0F172A] px-3 py-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                        >
+                          {(START_CHOICES.includes(slot.start) ? START_CHOICES : [...START_CHOICES, slot.start]).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
                         <span>–</span>
-                        <span className="bg-[#F8FAFC] px-3 py-1.5 rounded-lg">{slot.end}</span>
+                        <select
+                          aria-label={`${slot.day} end time`}
+                          value={slot.end}
+                          onChange={(e) => setSlotTime(slot.day, 'end', e.target.value)}
+                          className="bg-[#F8FAFC] border border-gray-100 text-[#0F172A] px-3 py-1.5 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                        >
+                          {(END_CHOICES.includes(slot.end) ? END_CHOICES : [...END_CHOICES, slot.end]).map((t) => (
+                            <option key={t} value={t}>{t}</option>
+                          ))}
+                        </select>
                       </div>
                     ) : (
                       <span className="text-sm text-[#64748B]">Unavailable</span>
