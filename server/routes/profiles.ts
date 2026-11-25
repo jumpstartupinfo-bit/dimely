@@ -137,10 +137,17 @@ router.get('/', optionalAuth, async (req: Request, res: Response) => {
     const lim = Math.min(Number(limit), 50)
     const off = Number(offset)
 
-    const rows = await db.all(
-      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where} ORDER BY p.booking_count DESC LIMIT $${pi} OFFSET $${pi + 1}`,
-      [...params, lim, off]
-    ) as Record<string, unknown>[]
+    // Most-booked first; among equals the newest person first, so a new host is never buried.
+    const listSql = (order: string) =>
+      `SELECT p.*, u.email FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where} ORDER BY ${order} LIMIT $${pi} OFFSET $${pi + 1}`
+    let rows: Record<string, unknown>[]
+    try {
+      rows = await db.all(listSql('p.booking_count DESC, p.created_at DESC'), [...params, lim, off]) as Record<string, unknown>[]
+    } catch (orderErr) {
+      // A database without a created_at column still works, just without the tie-break
+      if ((orderErr as { code?: string }).code !== '42703') throw orderErr
+      rows = await db.all(listSql('p.booking_count DESC, p.username ASC'), [...params, lim, off]) as Record<string, unknown>[]
+    }
 
     const countRow = await db.get(
       `SELECT COUNT(*) as total FROM profiles p JOIN users u ON u.id = p.user_id WHERE ${where}`,

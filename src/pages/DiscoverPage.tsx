@@ -1,5 +1,5 @@
 import type { Page } from '../App'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, Mic, Video, CheckCircle2, MapPin, Zap, SlidersHorizontal, X, Bot, AlertCircle } from 'lucide-react'
 import { profiles as profilesApi, type Profile } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
@@ -189,16 +189,31 @@ export function DiscoverPage({ onNavigate }: DiscoverPageProps) {
   const [results, setResults] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [moreError, setMoreError] = useState(false)
 
-  const fetchProfiles = useCallback(async (opts: {
+  interface FetchOpts {
     q?: string
     category?: string
     availableToday?: boolean
     video?: boolean
     maxPrice?: number | null
-  }) => {
-    setLoading(true)
-    setError(null)
+  }
+  const PAGE_SIZE = 24
+  const lastOptsRef = useRef<FetchOpts>({})
+
+  const fetchProfiles = useCallback(async (opts: FetchOpts, nextPage = 0) => {
+    const append = nextPage > 0
+    lastOptsRef.current = opts
+    if (append) {
+      setLoadingMore(true)
+      setMoreError(false)
+    } else {
+      setLoading(true)
+      setError(null)
+    }
     try {
       const data = await profilesApi.list({
         q: opts.q || undefined,
@@ -206,14 +221,28 @@ export function DiscoverPage({ onNavigate }: DiscoverPageProps) {
         availableToday: opts.availableToday || undefined,
         video: opts.video || undefined,
         maxPrice: opts.maxPrice ?? undefined,
+        limit: PAGE_SIZE,
+        offset: nextPage * PAGE_SIZE,
       })
       // Exclude the logged-in user's own profile
-      setResults(data.profiles.filter((p) => !user || p.username !== user.username))
+      const visible = data.profiles.filter((p) => !user || p.username !== user.username)
+      setResults((prev) => {
+        if (!append) return visible
+        const seen = new Set(prev.map((p) => p.id))
+        return [...prev, ...visible.filter((p) => !seen.has(p.id))]
+      })
+      setTotal(data.total)
+      setPage(nextPage)
     } catch {
-      setError('Something went wrong loading people. Please try again.')
-      setResults([])
+      if (append) {
+        setMoreError(true)
+      } else {
+        setError('Something went wrong loading people. Please try again.')
+        setResults([])
+      }
     } finally {
-      setLoading(false)
+      if (append) setLoadingMore(false)
+      else setLoading(false)
     }
   }, [user])
 
@@ -441,6 +470,21 @@ export function DiscoverPage({ onNavigate }: DiscoverPageProps) {
                 <PersonCard key={profile.id} profile={profile} onNavigate={onNavigate} />
               ))}
             </div>
+
+            {(page + 1) * PAGE_SIZE < total && (
+              <div className="mt-6 text-center">
+                <button
+                  onClick={() => { void fetchProfiles(lastOptsRef.current, page + 1) }}
+                  disabled={loadingMore}
+                  className="px-6 py-3 rounded-xl bg-white border border-gray-200 text-sm font-semibold text-[#0F172A] hover:border-[#6366F1] hover:text-[#6366F1] transition-colors disabled:opacity-60"
+                >
+                  {loadingMore ? 'Loading...' : 'Load more people'}
+                </button>
+                {moreError && (
+                  <p className="mt-2 text-xs text-red-600">Could not load more people. Please try again.</p>
+                )}
+              </div>
+            )}
 
             {/* Available today callout */}
             {!availableFilter && availableTodayCount > 0 && (

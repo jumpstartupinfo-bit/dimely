@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express'
 import bcrypt from 'bcryptjs'
 import { rateLimit } from 'express-rate-limit'
-import db from '../db'
+import db, { withTransaction } from '../db'
+import { ensureAccountRecords, provisionAccountRecords } from '../account-setup'
 import { createSession, deleteSession, requireAuth, extractToken } from '../auth'
-import { newId, generateReferralCode, generateReferralSlug } from '../utils'
+import { newId } from '../utils'
 
 const router = Router()
 
@@ -40,32 +41,14 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
     const passwordHash = await bcrypt.hash(password, 12)
     const userId = newId()
 
-    await db.run(
-      `INSERT INTO users(id, email, password_hash, name, username) VALUES ($1, $2, $3, $4, $5)`,
-      [userId, lowerEmail, passwordHash, name, lowerUsername]
-    )
-
-    await db.run(`INSERT INTO wallets(id, user_id) VALUES ($1, $2)`, [newId(), userId])
-
-    const initials = name.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2)
-    const colors = ['#6366F1', '#0891B2', '#059669', '#D97706', '#DC2626', '#7C3AED', '#DB2777']
-    const color = colors[Math.floor(Math.random() * colors.length)]
-    const profileId = newId()
-
-    await db.run(
-      `INSERT INTO profiles(id, user_id, username, name, headline, avatar_initials, avatar_color, published)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [profileId, userId, lowerUsername, name, '', initials, color, true]
-    )
-
-    const refCode = generateReferralCode(lowerUsername)
-    const refSlug = generateReferralSlug(lowerUsername)
-    await db.run(
-      `INSERT INTO referral_codes(id, user_id, code, link_slug) VALUES ($1, $2, $3, $4)`,
-      [newId(), userId, refCode, refSlug]
-    )
-
-    await db.run(`INSERT INTO ai_agents(id, user_id) VALUES ($1, $2)`, [newId(), userId])
+    // All-or-nothing: if any step fails, nothing is left behind and the person can simply retry.
+    await withTransaction(async (tx) => {
+      await tx.run(
+        `INSERT INTO users(id, email, password_hash, name, username) VALUES ($1, $2, $3, $4, $5)`,
+        [userId, lowerEmail, passwordHash, name, lowerUsername],
+      )
+      await provisionAccountRecords(tx, { id: userId, name, username: lowerUsername })
+    })
 
     const token = await createSession(userId)
     res.status(201).json({
@@ -73,6 +56,10 @@ router.post('/signup', authLimiter, async (req: Request, res: Response) => {
       user: { id: userId, email: lowerEmail, name, username: lowerUsername }
     })
   } catch (err) {
+    // Two people signing up with the same email or username at the same moment
+    if ((err as { code?: string }).code === '23505') {
+      res.status(409).json({ error: 'An account with this email or username already exists' }); return
+    }
     console.error('Signup error:', err)
     res.status(500).json({ error: 'Failed to create account. Please try again.' })
   }
@@ -88,6 +75,8 @@ router.post('/login', authLimiter, async (req: Request, res: Response) => {
     if (!user) { res.status(401).json({ error: 'Invalid email or password' }); return }
     const valid = await bcrypt.compare(password, user.password_hash as string)
     if (!valid) { res.status(401).json({ error: 'Invalid email or password' }); return }
+    // Heals an account whose signup stopped halfway (no profile, wallet, referral code or agent row)
+    await ensureAccountRecords(user.id as string)
     const token = await createSession(user.id as string)
     res.json({
       token,
@@ -113,6 +102,7 @@ router.post('/logout', requireAuth, async (req: Request, res: Response) => {
 router.get('/me', requireAuth, async (req: Request, res: Response) => {
   try {
     const user = (req as Record<string, unknown>).user as { id: string }
+    await ensureAccountRecords(user.id)
     const profile = await db.get('SELECT * FROM profiles WHERE user_id = $1', [user.id])
     const refCode = await db.get(
       'SELECT code, link_slug FROM referral_codes WHERE user_id = $1', [user.id]
