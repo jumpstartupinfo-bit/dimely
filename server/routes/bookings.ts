@@ -4,6 +4,7 @@ import { requireAuth } from '../auth'
 import { newId, calcBookingAmounts, localTimeToUtc, addMinutes, formatUtcTime, formatUtcDate } from '../utils'
 import { getPlatformFeePercent } from '../config'
 import { createNotification } from '../notifications'
+import { isBookableStart } from '../booking-rules'
 import {
   createPaymentIntent,
   verifyUsdcPayment,
@@ -67,6 +68,10 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     const hostTz = profile.timezone || 'UTC'
     const guestTz = guestTimezone || 'UTC'
     const startUtc = localTimeToUtc(date, startTime, hostTz)
+    // A booking for a time that has passed, or starts too soon, can never be attended.
+    if (!isBookableStart(startUtc.getTime(), Date.now())) {
+      res.status(400).json({ error: 'That time has passed or starts too soon. Please choose a time at least 15 minutes from now.' }); return
+    }
     const endUtc = addMinutes(startUtc, Number(duration))
     const utcDate = formatUtcDate(startUtc)
     const utcStart = formatUtcTime(startUtc)

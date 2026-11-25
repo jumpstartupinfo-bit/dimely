@@ -146,6 +146,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
   // Calendar state
   const [weekOffset, setWeekOffset] = useState(0)
   const [slotsCache, setSlotsCache] = useState<Record<string, { slots: string[], loaded: boolean }>>({})
+  const [hostTimezone, setHostTimezone] = useState<string | null>(null)
   const days = Array.from({ length: 7 }, (_, i) => {
     const d = buildDay(weekOffset * 7 + i)
     const cached = slotsCache[d.isoDate]
@@ -183,6 +184,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
     setSelectedSlot(null)
     try {
       const res = await profilesApi.availability(username, isoDate)
+      if (res.timezone) setHostTimezone(res.timezone)
       setSlotsCache((prev) => ({ ...prev, [isoDate]: { slots: res.slots.map(formatSlot), loaded: true } }))
     } catch {
       setSlotsCache((prev) => ({ ...prev, [isoDate]: { slots: [], loaded: true } }))
@@ -579,6 +581,11 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                   <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-3">
                     Available times — {selectedDay.dayLabel}
                   </p>
+                  {hostTimezone && (
+                    <p className="text-xs text-[#64748B] -mt-2 mb-3">
+                      Times are shown in {hostTimezone.replace(/_/g, ' ')} (the host&apos;s time zone).
+                    </p>
+                  )}
                   <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
                     {selectedDay.slots.map((slot) => (
                       <button

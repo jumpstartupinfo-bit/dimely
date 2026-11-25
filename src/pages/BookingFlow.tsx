@@ -84,6 +84,8 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
   const [selectedDay, setSelectedDay] = useState<(typeof WEEK_DAYS)[0] | null>(null)
   const [slots, setSlots] = useState<string[]>([])
   const [slotsLoading, setSlotsLoading] = useState(false)
+  const [hostTimezone, setHostTimezone] = useState<string | null>(null)
+  const [slotsError, setSlotsError] = useState(false)
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null)
   const [selectedDuration, setSelectedDuration] = useState<number | null>(null)
   const [callType, setCallType] = useState<'video' | 'voice' | null>(null)
@@ -121,12 +123,17 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
     async function loadSlots() {
       setSlotsLoading(true)
       setSlots([])
+      setSlotsError(false)
       setSelectedSlot(null)
       try {
         const res = await profilesApi.availability(username, selectedDay!.isoDate)
-        if (!cancelled) setSlots(res.slots)
+        if (!cancelled) {
+          setSlots(res.slots)
+          if (res.timezone) setHostTimezone(res.timezone)
+        }
       } catch {
-        if (!cancelled) setSlots(['9:00 AM', '10:00 AM', '1:00 PM', '3:00 PM', '5:00 PM'])
+        // Never invent availability. Show the problem and let the person retry.
+        if (!cancelled) setSlotsError(true)
       } finally {
         if (!cancelled) setSlotsLoading(false)
       }
@@ -289,11 +296,21 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
                 <div className="flex items-center justify-center py-8">
                   <Loader2 size={24} className="animate-spin text-[#6366F1]" />
                 </div>
+              ) : slotsError ? (
+                <div className="text-center py-8 text-sm text-red-600">
+                  We could not load available times. Please go back and try again.
+                </div>
               ) : slots.length === 0 ? (
                 <div className="text-center py-8 text-sm text-[#64748B]">
-                  No slots available on this day. Please pick another date.
+                  No times left on this day. Please pick another date.
                 </div>
               ) : (
+                <div>
+                {hostTimezone && (
+                  <p className="text-xs text-[#64748B] mb-3">
+                    Times are shown in {hostTimezone.replace(/_/g, ' ')} (the host&apos;s time zone).
+                  </p>
+                )}
                 <div className="grid grid-cols-3 gap-3">
                   {slots.map((slot) => (
                     <button
@@ -308,6 +325,7 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
                       {slot}
                     </button>
                   ))}
+                </div>
                 </div>
               )}
             </div>

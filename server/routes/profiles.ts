@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import db from '../db'
 import { requireAuth, optionalAuth } from '../auth'
+import { localTimeToUtc } from '../utils'
+import { earliestBookableMs, rangesOverlap } from '../booking-rules'
 
 const router = Router()
 
@@ -240,6 +242,9 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
     if (!date) { res.status(400).json({ error: 'date query param required' }); return }
 
     const dateStr = date as string
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) { res.status(400).json({ error: 'date must be YYYY-MM-DD' }); return }
+    // Working hours are in the host's own timezone, so every time below is host-local time.
+    const tz = String(profile.timezone || 'UTC')
     const d = new Date(dateStr + 'T00:00:00Z')
     const dow = d.getUTCDay()
 
@@ -248,23 +253,24 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
       [profile.id, dow]
     ) as Array<{ start_time: string; end_time: string }>
 
-    if (windows.length === 0) { res.json({ slots: [] }); return }
+    if (windows.length === 0) { res.json({ slots: [], timezone: tz }); return }
 
+    // Existing bookings as exact UTC time ranges. The host's day can touch two UTC dates,
+    // so look one day either side.
+    const dayBefore = new Date(d.getTime() - 86_400_000).toISOString().slice(0, 10)
+    const dayAfter = new Date(d.getTime() + 86_400_000).toISOString().slice(0, 10)
     const booked = await db.all(
-      `SELECT start_time, duration_mins FROM bookings WHERE profile_id = $1 AND date = $2 AND status NOT IN ('cancelled','refunded','expired')`,
-      [profile.id, dateStr]
-    ) as Array<{ start_time: string; duration_mins: number }>
+      `SELECT date, start_time, duration_mins FROM bookings
+       WHERE profile_id = $1 AND date BETWEEN $2 AND $3 AND status NOT IN ('cancelled','refunded','expired')`,
+      [profile.id, dayBefore, dayAfter]
+    ) as Array<{ date: string; start_time: string; duration_mins: number }>
+    const bookedRanges = booked.map((b) => {
+      const s = Date.parse(`${b.date}T${b.start_time}:00Z`)
+      return [s, s + Number(b.duration_mins) * 60_000] as const
+    })
 
     const minDur = Number(profile.min_duration ?? 15)
-    const blockedSlots = new Set<string>()
-    for (const b of booked) {
-      const [bh, bm] = b.start_time.split(':').map(Number)
-      const startMin = bh * 60 + bm
-      for (let i = 0; i < b.duration_mins; i += 15) {
-        const t = startMin + i
-        blockedSlots.add(`${String(Math.floor(t/60)).padStart(2,'0')}:${String(t%60).padStart(2,'0')}`)
-      }
-    }
+    const earliest = earliestBookableMs(Date.now())
 
     const slots: string[] = []
     for (const w of windows) {
@@ -276,12 +282,17 @@ router.get('/:username/availability', async (req: Request, res: Response) => {
         const hh = String(Math.floor(cur / 60)).padStart(2, '0')
         const mm = String(cur % 60).padStart(2, '0')
         const slot = `${hh}:${mm}`
-        if (!blockedSlots.has(slot)) slots.push(slot)
         cur += 30
+        const startMs = localTimeToUtc(dateStr, slot, tz).getTime()
+        // Past slots, and slots starting too soon, are not offered
+        if (startMs < earliest) continue
+        const endMs = startMs + minDur * 60_000
+        if (bookedRanges.some(([bs, be]) => rangesOverlap(startMs, endMs, bs, be))) continue
+        slots.push(slot)
       }
     }
 
-    res.json({ slots, pricePerMin: profile.price_per_min, minDuration: minDur })
+    res.json({ slots, pricePerMin: profile.price_per_min, minDuration: minDur, timezone: tz })
   } catch (err) {
     console.error('GET /profiles/:username/availability error:', err)
     res.status(500).json({ error: 'Failed to load availability' })

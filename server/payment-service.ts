@@ -141,8 +141,8 @@ export async function verifyUsdcPayment(params: VerifyPaymentParams): Promise<Ve
     const confirmedAmount = rawToUsdc(value)
 
     await db.run(`
-      UPDATE payments SET status='confirmed', tx_hash=$1, updated_at=NOW() WHERE id=$2
-    `, [params.txHash, params.paymentId])
+      UPDATE payments SET status='confirmed', tx_hash=$1, sender_address=$3, updated_at=NOW() WHERE id=$2
+    `, [params.txHash, params.paymentId, expectedSender])
 
     return { ok: true, confirmedAmount, blockNumber: receipt.blockNumber }
   } catch (err) {

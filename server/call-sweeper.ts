@@ -17,6 +17,7 @@ import { newId } from './utils'
 import { createNotification } from './notifications'
 import { getReferralCommissionPercent } from './config'
 import { settleBooking } from './payment-service'
+import { wasBookedAfterStart } from './booking-rules'
 import {
   evaluateCallOutcome,
   FINALIZE_AFTER_END_MS,
@@ -117,14 +118,24 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
     else if (s.role === 'guest') guest.push(interval)
   }
 
-  const { outcome, overlapMs, hostMs, guestMs } = evaluateCallOutcome({
-    startMs,
-    durationMins,
-    host,
-    guest,
-    hostTokenIssued: Boolean(call?.host_token_at),
-    guestTokenIssued: Boolean(call?.guest_token_at),
-  })
+  // A booking created after its own start time could never have been attended. That is not
+  // a no-show by anyone, so the guest is refunded and the host is not marked as missing it.
+  const invalidTime = wasBookedAfterStart(new Date(booking.created_at as string).getTime(), startMs)
+
+  const evaluated = invalidTime
+    ? null
+    : evaluateCallOutcome({
+        startMs,
+        durationMins,
+        host,
+        guest,
+        hostTokenIssued: Boolean(call?.host_token_at),
+        guestTokenIssued: Boolean(call?.guest_token_at),
+      })
+  const outcome: CallOutcome | 'invalid_time' = evaluated ? evaluated.outcome : 'invalid_time'
+  const overlapMs = evaluated?.overlapMs ?? 0
+  const hostMs = evaluated?.hostMs ?? 0
+  const guestMs = evaluated?.guestMs ?? 0
 
   const applied = await withTransaction(async (tx) => {
     let claim: Record<string, any> | undefined
@@ -136,7 +147,7 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
          WHERE id=$1 AND status='confirmed' RETURNING id`,
         [booking.id, outcome, DISPUTE_WINDOW_HOURS],
       )
-    } else if (outcome === 'host_no_show' || outcome === 'both_no_show') {
+    } else if (outcome === 'host_no_show' || outcome === 'both_no_show' || outcome === 'invalid_time') {
       // The guest is owed a full refund. The host earns nothing.
       claim = await tx.get(
         `UPDATE bookings SET status='cancelled', outcome=$2, cancel_reason=$2, cancelled_at=NOW(), updated_at=NOW()
@@ -179,7 +190,7 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
   if (applied) notifyOutcome(outcome, booking)
 }
 
-function notifyOutcome(outcome: CallOutcome, b: Record<string, any>): void {
+function notifyOutcome(outcome: CallOutcome | 'invalid_time', b: Record<string, any>): void {
   const meta = { bookingId: b.id }
   const hostId = String(b.host_id)
   const guestId = String(b.guest_id)
@@ -207,6 +218,12 @@ function notifyOutcome(outcome: CallOutcome, b: Record<string, any>): void {
         `Nobody joined the call on ${b.date}. You will be refunded in full.`, meta)
       createNotification(hostId, 'call_missed', 'Your call did not take place',
         `Nobody joined the call on ${b.date}. The guest is being refunded.`, meta)
+      break
+    case 'invalid_time':
+      createNotification(guestId, 'refund_pending', 'Your booking is being refunded',
+        `This booking was made for a time that had already passed (${b.date}), so the call could not take place. You will be refunded in full.`, meta)
+      createNotification(hostId, 'call_missed', 'A booking was cancelled',
+        `A booking made for a time that had already passed (${b.date}) was cancelled and refunded. It does not count against you.`, meta)
       break
     case 'needs_review':
       createNotification(guestId, 'call_review', 'We are reviewing your call',
