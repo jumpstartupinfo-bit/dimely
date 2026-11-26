@@ -41,5 +41,4 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
-traces.jsonl
-console.jsonl
+.data/
