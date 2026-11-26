@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Copy, CheckCircle2, Link, Loader2 } from 'lucide-react'
+import { LoadError } from '../components/LoadError'
 import { referrals as referralsApi, type ReferralDashboard } from '../lib/api'
 import { useAuth } from '../context/AuthContext'
 import type { Page } from '../App'
@@ -21,37 +22,40 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState<ReferralDashboard | null>(null)
 
-  const myCode = referralCode ?? dashboard?.code ?? 'DIMELY-YOU-XXXX'
-  const mySlug = referralSlug ?? dashboard?.linkSlug ?? 'you'
-  const referralLink = `dimely.com/invite/${mySlug}`
+  const [loadError, setLoadError] = useState(false)
 
-  useEffect(() => {
-    let mounted = true
-    referralsApi.dashboard().then((res) => {
-      if (mounted) setDashboard(res)
-    }).catch(() => {
-      if (mounted) setDashboard({
-        code: null,
-        linkSlug: null,
-        referrals: [
-          { referred_name: 'Alex Johnson', created_at: '2026-10-03', booking_count: 3, total_commission: 12.40, status: 'active' },
-          { referred_name: 'Maria Santos', created_at: '2026-09-28', booking_count: 7, total_commission: 28.00, status: 'active' },
-          { referred_name: 'David Kim', created_at: '2026-09-15', booking_count: 11, total_commission: 44.20, status: 'active' },
-        ],
-        totalEarned: 84.60,
-        activeReferrals: 3,
-      })
-    }).finally(() => { if (mounted) setLoading(false) })
-    return () => { mounted = false }
+  // Only ever show a real code and link. Never a placeholder.
+  const myCode = referralCode ?? dashboard?.code ?? null
+  const mySlug = referralSlug ?? dashboard?.linkSlug ?? null
+  const referralLink = mySlug ? `${window.location.host}/invite/${mySlug}` : null
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      setDashboard(await referralsApi.dashboard())
+    } catch {
+      setDashboard(null)
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
   }, [])
 
+  useEffect(() => {
+    async function init() { await load() }
+    void init()
+  }, [load])
+
   function copyCode() {
+    if (!myCode) return
     navigator.clipboard.writeText(myCode).catch(() => {})
     setCodeCopied(true)
     setTimeout(() => setCodeCopied(false), 2000)
   }
 
   function copyLink() {
+    if (!referralLink) return
     navigator.clipboard.writeText(`https://${referralLink}`).catch(() => {})
     setLinkCopied(true)
     setTimeout(() => setLinkCopied(false), 2000)
@@ -73,9 +77,11 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
             className="text-4xl font-bold text-white tabular-nums relative mb-1"
             style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.03em' }}
           >
-            ${totalCommission.toFixed(2)}
+            {dashboard ? `$${totalCommission.toFixed(2)}` : '—'}
           </p>
-          <p className="text-[#A5B4FC] text-sm relative">from {activeCount} active referral{activeCount !== 1 ? 's' : ''}</p>
+          <p className="text-[#A5B4FC] text-sm relative">
+            {dashboard ? `from ${activeCount} active referral${activeCount !== 1 ? 's' : ''}` : 'Not loaded yet'}
+          </p>
           <div className="grid grid-cols-3 gap-4 mt-5 relative">
             {[
               { label: 'Referrals', value: String(referrals.length) },
@@ -98,9 +104,10 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
 
           <div className="flex items-center gap-2 bg-[#F8FAFC] rounded-xl p-3 mb-3">
             <Link size={14} className="text-[#6366F1] flex-shrink-0" />
-            <span className="flex-1 text-sm text-[#0F172A] truncate font-medium">{referralLink}</span>
+            <span className="flex-1 text-sm text-[#0F172A] truncate font-medium">{referralLink ?? 'Not available yet'}</span>
             <button
               onClick={copyLink}
+              disabled={!referralLink}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
                 linkCopied ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E0E7FF] text-[#6366F1] hover:bg-[#C7D2FE]'
               }`}
@@ -111,9 +118,10 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
           </div>
 
           <div className="flex items-center gap-2 bg-[#F8FAFC] rounded-xl p-3 mb-4">
-            <span className="flex-1 text-sm font-bold text-[#0F172A] tracking-wider tabular-nums">{myCode}</span>
+            <span className="flex-1 text-sm font-bold text-[#0F172A] tracking-wider tabular-nums">{myCode ?? 'Not available yet'}</span>
             <button
               onClick={copyCode}
+              disabled={!myCode}
               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex-shrink-0 ${
                 codeCopied ? 'bg-emerald-100 text-emerald-600' : 'bg-[#E0E7FF] text-[#6366F1] hover:bg-[#C7D2FE]'
               }`}
@@ -127,8 +135,9 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
             {['WhatsApp', 'Instagram', 'X', 'Email', 'LinkedIn'].map((platform) => (
               <button
                 key={platform}
-                onClick={() => { void navigator.clipboard.writeText(`https://${referralLink}`).catch(() => {}) }}
-                className="text-xs font-medium text-[#64748B] bg-[#F8FAFC] border border-gray-200 px-3 py-2 rounded-xl hover:border-[#6366F1] hover:text-[#6366F1] transition-colors"
+                disabled={!referralLink}
+                onClick={() => { if (referralLink) void navigator.clipboard.writeText(`https://${referralLink}`).catch(() => {}) }}
+                className="text-xs font-medium text-[#64748B] bg-[#F8FAFC] border border-gray-200 px-3 py-2 rounded-xl hover:border-[#6366F1] hover:text-[#6366F1] transition-colors disabled:opacity-50"
               >
                 {platform}
               </button>
@@ -158,6 +167,10 @@ export function InviteEarnPage({ onNavigate: _onNavigate }: InviteEarnPageProps)
         {loading ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 size={24} className="animate-spin text-[#6366F1]" />
+          </div>
+        ) : loadError ? (
+          <div className="mb-5">
+            <LoadError what="your referrals" onRetry={() => { void load() }} />
           </div>
         ) : referrals.length > 0 && (
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-5">

@@ -7,6 +7,7 @@ import { bookings as bookingsApi, availability as availabilityApi, type Booking 
 
 interface CalendarPageProps {
   onNavigate: (page: Page, username?: string) => void
+  initialView?: 'week' | 'month' | 'availability'
 }
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
@@ -42,19 +43,54 @@ function minutesOf(t12: string): number {
 const START_CHOICES = Array.from({ length: 48 }, (_, i) => formatTime12(i * 30))
 const END_CHOICES = [...START_CHOICES.slice(1), '11:59 PM']
 
-const CURRENT_WEEK = [6, 7, 8, 9, 10, 11, 12]
-const MONTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
-// Stable reference computed once at module load — safe to use in render
-const TODAY_DATE = new Date().getDate()
+// Read once when the page loads. Used for "today" and for what counts as upcoming.
+const NOW_AT_LOAD = new Date()
 
-export function CalendarPage({ onNavigate }: CalendarPageProps) {
-  const [view, setView] = useState<'week' | 'month' | 'availability'>('week')
+function startOfWeek(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)) // Monday first
+  return x
+}
+
+function addDays(d: Date, n: number): Date {
+  const x = new Date(d)
+  x.setDate(x.getDate() + n)
+  return x
+}
+
+function sameDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
+}
+
+/** Bookings are stored in UTC. This is the moment the call starts, shown in the viewer's own time zone. */
+function bookingStart(b: Booking): Date {
+  return new Date(`${b.date}T${b.start_time}:00Z`)
+}
+
+function formatClock(d: Date): string {
+  return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+}
+
+function monthLabel(d: Date): string {
+  return d.toLocaleDateString([], { month: 'long', year: 'numeric' })
+}
+
+function weekLabel(start: Date): string {
+  const end = addDays(start, 6)
+  const left = start.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  const right = end.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${left} – ${right}`
+}
+
+export function CalendarPage({ onNavigate, initialView = 'week' }: CalendarPageProps) {
+  const [view, setView] = useState<'week' | 'month' | 'availability'>(initialView)
+  const [weekStart, setWeekStart] = useState<Date>(() => startOfWeek(NOW_AT_LOAD))
+  const [monthStart, setMonthStart] = useState<Date>(() => new Date(NOW_AT_LOAD.getFullYear(), NOW_AT_LOAD.getMonth(), 1))
   const [availability, setAvailability] = useState(AVAILABILITY_SLOTS)
   const [bufferMinutes, setBufferMinutes] = useState(10)
   const [savingAvailability, setSavingAvailability] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const todayDate = TODAY_DATE
   const [upcomingBookings, setUpcomingBookings] = useState<Booking[]>([])
 
   async function handleSaveAvailability() {
@@ -157,7 +193,9 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
             <h1 className="text-2xl font-bold text-[#0F172A]" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
               Calendar
             </h1>
-            <p className="text-sm text-[#64748B]">October 2026</p>
+            <p className="text-sm text-[#64748B]">
+              {view === 'month' ? monthLabel(monthStart) : view === 'week' ? monthLabel(weekStart) : 'Working hours'}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             {/* View switcher */}
@@ -178,157 +216,202 @@ export function CalendarPage({ onNavigate }: CalendarPageProps) {
         </div>
 
         {/* Week view */}
-        {view === 'week' && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <button className="p-2 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-colors">
-                <ChevronLeft size={18} className="text-[#64748B]" />
-              </button>
-              <p className="text-sm font-semibold text-[#0F172A]">Oct 6 – 12, 2026</p>
-              <button className="p-2 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-colors">
-                <ChevronRight size={18} className="text-[#64748B]" />
-              </button>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-6">
-              {/* Day headers */}
-              <div className="grid grid-cols-7 border-b border-gray-100">
-                {DAYS_OF_WEEK.map((d, i) => {
-                  const date = CURRENT_WEEK[i]
-                  const isToday = date === todayDate
-                  return (
-                    <div key={d} className={`py-3 text-center ${isToday ? 'bg-[#E0E7FF]' : ''}`}>
-                      <p className="text-xs text-[#64748B] font-medium">{d}</p>
-                      <p className={`text-sm font-bold mt-0.5 ${isToday ? 'text-[#6366F1]' : 'text-[#0F172A]'}`}>
-                        {date}
-                      </p>
-                    </div>
-                  )
-                })}
+        {view === 'week' && (() => {
+          const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+          const weekBookings = upcomingBookings.filter((bk) => {
+            const t = bookingStart(bk)
+            return t >= days[0] && t < addDays(days[6], 1)
+          })
+          const upcomingList = upcomingBookings
+            .filter((bk) => bookingStart(bk).getTime() >= NOW_AT_LOAD.getTime() - 60 * 60 * 1000)
+            .slice(0, 10)
+          return (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <button
+                  onClick={() => setWeekStart((w) => addDays(w, -7))}
+                  aria-label="Previous week"
+                  className="p-2 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-colors"
+                >
+                  <ChevronLeft size={18} className="text-[#64748B]" />
+                </button>
+                <div className="flex items-center gap-3">
+                  <p className="text-sm font-semibold text-[#0F172A]">{weekLabel(weekStart)}</p>
+                  <button
+                    onClick={() => setWeekStart(startOfWeek(NOW_AT_LOAD))}
+                    className="text-xs font-semibold text-[#6366F1] bg-[#E0E7FF] hover:bg-[#C7D2FE] px-2.5 py-1 rounded-lg transition-colors"
+                  >
+                    Today
+                  </button>
+                </div>
+                <button
+                  onClick={() => setWeekStart((w) => addDays(w, 7))}
+                  aria-label="Next week"
+                  className="p-2 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-colors"
+                >
+                  <ChevronRight size={18} className="text-[#64748B]" />
+                </button>
               </div>
 
-              {/* Time grid */}
-              <div className="relative min-h-[320px] p-4">
-                {/* Booking events */}
-                {upcomingBookings.map((booking, idx) => {
-                  const isHost = booking.role === 'host'
-                  const otherName = isHost ? (booking.guest_name ?? 'Guest') : (booking.host_name ?? 'Host')
-                  return (
-                    <div
-                      key={booking.id}
-                      onClick={() => onNavigate('bookings')}
-                      className={`absolute rounded-xl p-2.5 cursor-pointer hover:opacity-90 transition-opacity ${
-                        isHost ? 'bg-[#6366F1] text-white' : 'bg-[#E0E7FF] text-[#6366F1]'
-                      }`}
-                      style={{
-                        left: `${((idx % 5) / 7) * 100}%`,
-                        width: `${(1 / 7) * 100 - 2}%`,
-                        top: `${20 + idx * 60}px`,
-                      }}
-                    >
-                      <p className="text-xs font-bold truncate">{otherName.split(' ')[0]}</p>
-                      <p className={`text-xs ${isHost ? 'text-[#A5B4FC]' : 'text-[#6366F1]'}`}>{booking.start_time}</p>
-                      <p className={`text-xs ${isHost ? 'text-[#A5B4FC]' : 'text-[#6366F1]'}`}>{booking.duration}m</p>
-                    </div>
-                  )
-                })}
+              <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden mb-6">
+                <div className="grid grid-cols-7 divide-x divide-gray-100">
+                  {days.map((day, i) => {
+                    const isToday = sameDay(day, NOW_AT_LOAD)
+                    const dayBookings = weekBookings
+                      .filter((bk) => sameDay(bookingStart(bk), day))
+                      .sort((x, y) => bookingStart(x).getTime() - bookingStart(y).getTime())
+                    return (
+                      <div key={day.toISOString()} className="min-h-[260px]">
+                        <div className={`py-3 text-center border-b border-gray-100 ${isToday ? 'bg-[#E0E7FF]' : ''}`}>
+                          <p className="text-xs text-[#64748B] font-medium">{DAYS_OF_WEEK[i]}</p>
+                          <p className={`text-sm font-bold mt-0.5 ${isToday ? 'text-[#6366F1]' : 'text-[#0F172A]'}`}>
+                            {day.getDate()}
+                          </p>
+                        </div>
+                        <div className="p-1.5 space-y-1.5">
+                          {dayBookings.map((booking) => {
+                            const isHost = booking.role === 'host'
+                            const otherName = isHost ? (booking.guest_name ?? 'Guest') : (booking.host_name ?? 'Host')
+                            return (
+                              <div
+                                key={booking.id}
+                                onClick={() => onNavigate('bookings')}
+                                className={`rounded-xl p-2 cursor-pointer hover:opacity-90 transition-opacity ${
+                                  isHost ? 'bg-[#6366F1] text-white' : 'bg-[#E0E7FF] text-[#6366F1]'
+                                }`}
+                              >
+                                <p className="text-[11px] font-bold truncate">{otherName.split(' ')[0]}</p>
+                                <p className={`text-[11px] ${isHost ? 'text-[#E0E7FF]' : 'text-[#6366F1]'}`}>{formatClock(bookingStart(booking))}</p>
+                                <p className={`text-[11px] ${isHost ? 'text-[#E0E7FF]' : 'text-[#6366F1]'}`}>{booking.duration}m</p>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-xs text-[#64748B] text-center py-3 border-t border-gray-100">
+                  {weekBookings.length === 0 ? 'No bookings this week' : 'Click a booking to view details'}
+                </p>
+              </div>
 
-                {/* Empty state hint */}
-                <div className="absolute bottom-4 left-0 right-0 flex justify-center">
-                  <p className="text-xs text-[#64748B]">Click a booking to view details</p>
+              {/* Upcoming list */}
+              <div>
+                <h2 className="text-base font-bold text-[#0F172A] mb-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                  Upcoming bookings
+                </h2>
+                <div className="space-y-3">
+                  {upcomingList.length === 0 ? (
+                    <p className="text-sm text-[#64748B] text-center py-4">No upcoming bookings</p>
+                  ) : upcomingList.map((booking) => {
+                    const isHost = booking.role === 'host'
+                    const otherName = isHost ? (booking.guest_name ?? 'Guest') : (booking.host_name ?? 'Host')
+                    const nameInitials = otherName.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
+                    const start = bookingStart(booking)
+                    return (
+                      <div
+                        key={booking.id}
+                        onClick={() => onNavigate('bookings')}
+                        className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
+                      >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 bg-[#6366F1]">
+                          {nameInitials}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <p className="font-semibold text-sm text-[#0F172A] truncate">{otherName}</p>
+                            {isHost && <span className="text-xs bg-[#E0E7FF] text-[#6366F1] px-2 py-0.5 rounded-lg flex-shrink-0">Host</span>}
+                          </div>
+                          <p className="text-xs text-[#64748B]">
+                            {start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })} · {formatClock(start)} · {booking.duration} min
+                          </p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <div className="flex items-center gap-1 justify-end mb-1">
+                            {booking.call_type === 'video' ? (
+                              <Video size={14} className="text-[#6366F1]" />
+                            ) : (
+                              <Mic size={14} className="text-[#6366F1]" />
+                            )}
+                            <span className="text-xs text-[#64748B] capitalize">{booking.call_type}</span>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onNavigate('call', booking.id) }}
+                            className="text-xs bg-[#6366F1] text-white px-3 py-1.5 rounded-lg hover:bg-[#4F46E5] transition-colors"
+                          >
+                            Join
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
             </div>
+          )
+        })()}
 
-            {/* Upcoming list */}
-            <div>
-              <h2 className="text-base font-bold text-[#0F172A] mb-3" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
-                Upcoming this week
-              </h2>
-              <div className="space-y-3">
-                {upcomingBookings.length === 0 ? (
-                  <p className="text-sm text-[#64748B] text-center py-4">No upcoming bookings this week</p>
-                ) : upcomingBookings.map((booking) => {
-                  const isHost = booking.role === 'host'
-                  const otherName = isHost ? (booking.guest_name ?? 'Guest') : (booking.host_name ?? 'Host')
-                  const nameInitials = otherName.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
+        {/* Month view */}
+        {view === 'month' && (() => {
+          const year = monthStart.getFullYear()
+          const month = monthStart.getMonth()
+          const lead = (new Date(year, month, 1).getDay() + 6) % 7 // Monday first
+          const daysInMonth = new Date(year, month + 1, 0).getDate()
+          const cells: (Date | null)[] = [
+            ...Array.from({ length: lead }, () => null),
+            ...Array.from({ length: daysInMonth }, (_, i) => new Date(year, month, i + 1)),
+          ]
+          return (
+            <div className="bg-white rounded-2xl border border-gray-100 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <button
+                  onClick={() => setMonthStart(new Date(year, month - 1, 1))}
+                  aria-label="Previous month"
+                  className="p-2 rounded-xl hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <ChevronLeft size={18} className="text-[#64748B]" />
+                </button>
+                <p className="text-sm font-semibold text-[#0F172A]">{monthLabel(monthStart)}</p>
+                <button
+                  onClick={() => setMonthStart(new Date(year, month + 1, 1))}
+                  aria-label="Next month"
+                  className="p-2 rounded-xl hover:bg-[#F8FAFC] transition-colors"
+                >
+                  <ChevronRight size={18} className="text-[#64748B]" />
+                </button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 mb-2">
+                {DAYS_OF_WEEK.map((d) => (
+                  <div key={d} className="text-center text-xs font-semibold text-[#64748B] py-2">{d}</div>
+                ))}
+              </div>
+              <div className="grid grid-cols-7 gap-1">
+                {cells.map((day, i) => {
+                  const isToday = day ? sameDay(day, NOW_AT_LOAD) : false
+                  const count = day ? upcomingBookings.filter((bk) => sameDay(bookingStart(bk), day)).length : 0
                   return (
                     <div
-                      key={booking.id}
-                      onClick={() => onNavigate('bookings')}
-                      className="bg-white rounded-2xl border border-gray-100 p-4 flex items-center gap-4 cursor-pointer hover:shadow-md transition-shadow"
+                      key={i}
+                      className={`aspect-square flex flex-col items-center justify-center rounded-xl text-sm font-medium transition-colors ${
+                        isToday
+                          ? 'bg-[#6366F1] text-white'
+                          : count > 0
+                          ? 'bg-[#E0E7FF] text-[#6366F1]'
+                          : day
+                          ? 'text-[#0F172A]'
+                          : ''
+                      }`}
                     >
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-sm flex-shrink-0 bg-[#6366F1]">
-                        {nameInitials}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          <p className="font-semibold text-sm text-[#0F172A] truncate">{otherName}</p>
-                          {isHost && <span className="text-xs bg-[#E0E7FF] text-[#6366F1] px-2 py-0.5 rounded-lg flex-shrink-0">Host</span>}
-                        </div>
-                        <p className="text-xs text-[#64748B]">{booking.date} · {booking.start_time} · {booking.duration}min</p>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="flex items-center gap-1 justify-end mb-1">
-                          {booking.call_type === 'video' ? (
-                            <Video size={14} className="text-[#6366F1]" />
-                          ) : (
-                            <Mic size={14} className="text-[#6366F1]" />
-                          )}
-                          <span className="text-xs text-[#64748B] capitalize">{booking.call_type}</span>
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); onNavigate('call', booking.id) }}
-                          className="text-xs bg-[#6366F1] text-white px-3 py-1.5 rounded-lg hover:bg-[#4F46E5] transition-colors"
-                        >
-                          Join
-                        </button>
-                      </div>
+                      {day?.getDate()}
+                      {count > 0 && !isToday && <span className="w-1 h-1 rounded-full bg-[#6366F1] mt-0.5" />}
                     </div>
                   )
                 })}
               </div>
             </div>
-          </div>
-        )}
-
-        {/* Month view */}
-        {view === 'month' && (
-          <div className="bg-white rounded-2xl border border-gray-100 p-5">
-            <div className="grid grid-cols-7 gap-1 mb-2">
-              {DAYS_OF_WEEK.map((d) => (
-                <div key={d} className="text-center text-xs font-semibold text-[#64748B] py-2">{d}</div>
-              ))}
-            </div>
-            <div className="grid grid-cols-7 gap-1">
-              {([null, null] as (string | null)[]).concat(MONTH_DAYS.map(String)).map((d, i) => {
-                const date = d ? parseInt(d) : null
-                const isToday = date === todayDate
-                const hasBooking = date && upcomingBookings.some((b) => {
-                  const d = new Date(b.date)
-                  return d.getUTCDate() === date
-                })
-                return (
-                  <div
-                    key={i}
-                    className={`aspect-square flex flex-col items-center justify-center rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-                      isToday
-                        ? 'bg-[#6366F1] text-white'
-                        : hasBooking
-                        ? 'bg-[#E0E7FF] text-[#6366F1]'
-                        : date
-                        ? 'hover:bg-[#F8FAFC] text-[#0F172A]'
-                        : ''
-                    }`}
-                  >
-                    {date}
-                    {hasBooking && !isToday && <span className="w-1 h-1 rounded-full bg-[#6366F1] mt-0.5" />}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
+          )
+        })()}
 
         {/* Availability settings */}
         {view === 'availability' && (

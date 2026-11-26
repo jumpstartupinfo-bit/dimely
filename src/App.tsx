@@ -49,6 +49,7 @@ function AppInner() {
   const [activeUsername, setActiveUsername] = useState<string>(initialUsername)
   const [activeBookingId, setActiveBookingId] = useState<string | undefined>(initialBookingId)
   const [returnTo, setReturnTo] = useState<{ page: Page; username?: string } | undefined>(undefined)
+  const [calendarView, setCalendarView] = useState<'week' | 'availability'>('week')
 
   function navigate(targetPage: Page, usernameOrBookingId?: string) {
     if (targetPage === 'profile' || targetPage === 'booking') {
@@ -56,6 +57,10 @@ function AppInner() {
     }
     if (targetPage === 'call') {
       if (usernameOrBookingId) setActiveBookingId(usernameOrBookingId)
+    }
+    // "Set working hours" links here with 'hours' so the hours editor opens directly
+    if (targetPage === 'calendar') {
+      setCalendarView(usernameOrBookingId === 'hours' ? 'availability' : 'week')
     }
     // When navigating to onboarding mid-flow, record where to return
     if (targetPage === 'onboarding') {
@@ -132,7 +137,7 @@ function AppInner() {
         <BookingFlow username={activeUsername} onNavigate={navigate} />
       )}
 
-      {page === 'calendar' && <CalendarPage onNavigate={navigate} />}
+      {page === 'calendar' && <CalendarPage key={calendarView} onNavigate={navigate} initialView={calendarView} />}
 
       {page === 'bookings' && <BookingsPage onNavigate={navigate} />}
 

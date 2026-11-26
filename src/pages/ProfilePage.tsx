@@ -490,7 +490,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                 </p>
                 <div className="grid sm:grid-cols-3 gap-3">
                   <button
-                    onClick={() => onNavigate('calendar')}
+                    onClick={() => onNavigate('calendar', 'hours')}
                     className="py-3 rounded-xl bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold transition-colors"
                   >
                     Set working hours

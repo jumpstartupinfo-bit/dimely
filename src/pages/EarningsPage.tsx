@@ -11,6 +11,9 @@ interface EarningsPageProps {
   onNavigate: (page: Page, username?: string) => void
 }
 
+// Read once when the page loads
+const THIS_MONTH_LABEL = new Date().toLocaleDateString([], { month: 'long', year: 'numeric' })
+
 export function EarningsPage({ onNavigate }: EarningsPageProps) {
   const [summary, setSummary] = useState<EarningsSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
@@ -81,7 +84,7 @@ export function EarningsPage({ onNavigate }: EarningsPageProps) {
             <h1 className="text-2xl font-bold text-[#0F172A]" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
               Earnings
             </h1>
-            <p className="text-sm text-[#64748B]">October 2026</p>
+            <p className="text-sm text-[#64748B]">{THIS_MONTH_LABEL}</p>
           </div>
           <button
             onClick={() => onNavigate('invite')}
