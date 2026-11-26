@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express'
 import db, { withTransaction } from '../db'
 import { requireAuth } from '../auth'
 import { newId, calcBookingAmounts, localTimeToUtc, addMinutes, formatUtcTime, formatUtcDate } from '../utils'
-import { getPlatformFeePercent } from '../config'
+import { getBookingAmountLimits, getPlatformFeePercent } from '../config'
 import { createNotification } from '../notifications'
 import { isBookableStart } from '../booking-rules'
 import {
@@ -62,8 +62,15 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     if (callType === 'video' && !profile.video_available) { res.status(400).json({ error: 'Video calls not available' }); return }
     if (callType === 'voice' && !profile.voice_available) { res.status(400).json({ error: 'Voice calls not available' }); return }
 
-    const feePercent = getPlatformFeePercent()
+    const feePercent = await getPlatformFeePercent()
     const { gross, platformFee, hostEarnings } = calcBookingAmounts(profile.price_per_min, Number(duration), feePercent)
+    const limits = await getBookingAmountLimits()
+    if (gross < limits.min) {
+      res.status(400).json({ error: `The minimum booking is $${limits.min}. Please choose a longer call.` }); return
+    }
+    if (gross > limits.max) {
+      res.status(400).json({ error: `The maximum booking is $${limits.max}. Please choose a shorter call.` }); return
+    }
 
     const hostTz = profile.timezone || 'UTC'
     const guestTz = guestTimezone || 'UTC'

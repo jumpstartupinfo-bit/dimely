@@ -16,8 +16,6 @@ export const HARD_STOP_AFTER_END_MS = 5 * 60_000
 export const FINALIZE_AFTER_END_MS = HARD_STOP_AFTER_END_MS + 60_000
 /** A person counts as having shown up after this much time in the room. */
 export const MIN_PRESENCE_MS = 2 * 60_000
-/** After a qualifying call, the host's money is held this long for problems to be raised. */
-export const DISPUTE_WINDOW_HOURS = 24
 /** A booking that is never paid is expired after this long. */
 export const UNPAID_EXPIRY_MINUTES = 60
 

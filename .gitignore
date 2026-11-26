@@ -41,4 +41,10 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Local databases and logs
+*.db-shm
+*.db-wal
 .data/
+traces.jsonl
+console.jsonl

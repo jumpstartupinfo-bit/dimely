@@ -255,6 +255,7 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
   }
 
   function handleBooking() {
+    if (isOwnProfile) return
     if (selectedSlot) {
       onNavigate('booking', username)
     }
@@ -475,6 +476,41 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
 
           {/* ── Right column — booking widget ───────────────────────────── */}
           <div className="lg:col-span-2 space-y-4">
+            {isOwnProfile ? (
+              <div className="bg-white rounded-2xl border border-gray-100 p-6">
+                <h2
+                  className="text-lg font-bold text-[#0F172A] mb-2"
+                  style={{ fontFamily: "'Space Grotesk', sans-serif" }}
+                >
+                  This is your profile
+                </h2>
+                <p className="text-sm text-[#64748B] mb-5">
+                  This is how other people see you. You cannot book a call with yourself. To start getting bookings,
+                  set your working hours and share your profile link.
+                </p>
+                <div className="grid sm:grid-cols-3 gap-3">
+                  <button
+                    onClick={() => onNavigate('calendar')}
+                    className="py-3 rounded-xl bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold transition-colors"
+                  >
+                    Set working hours
+                  </button>
+                  <button
+                    onClick={openEdit}
+                    className="py-3 rounded-xl bg-[#F8FAFC] hover:bg-[#E0E7FF] text-[#0F172A] text-sm font-semibold transition-colors"
+                  >
+                    Edit profile
+                  </button>
+                  <button
+                    onClick={handleCopyLink}
+                    className="py-3 rounded-xl bg-[#F8FAFC] hover:bg-[#E0E7FF] text-[#0F172A] text-sm font-semibold transition-colors"
+                  >
+                    {copied ? 'Link copied' : 'Copy my link'}
+                  </button>
+                </div>
+              </div>
+            ) : (
+            <>
             <div className="bg-white rounded-2xl border border-gray-100 p-6">
               <h2
                 className="text-lg font-bold text-[#0F172A] mb-5"
@@ -678,6 +714,8 @@ export function ProfilePage({ username, onNavigate }: ProfilePageProps) {
                 ))}
               </div>
             </div>
+            </>
+            )}
           </div>
         </div>
       </div>

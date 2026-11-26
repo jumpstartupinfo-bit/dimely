@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { TrendingUp, DollarSign, Clock, Users, ChevronRight, CheckCircle2, AlertCircle, Loader2, Wallet } from 'lucide-react'
 import { earnings as earningsApi, type EarningsSummary, type Transaction } from '../lib/api'
-import { MOCK_EARNINGS } from '../data/mockData'
+import { LoadError } from '../components/LoadError'
 import { v4 as uuidv4 } from 'uuid'
 import type { Page } from '../App'
 import { useAccount } from 'wagmi'
@@ -15,46 +15,36 @@ export function EarningsPage({ onNavigate }: EarningsPageProps) {
   const [summary, setSummary] = useState<EarningsSummary | null>(null)
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [loadingData, setLoadingData] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [withdrawing, setWithdrawing] = useState(false)
   const [withdrawn, setWithdrawn] = useState(false)
   const [withdrawError, setWithdrawError] = useState<string | null>(null)
   const { address: walletAddress, isConnected: walletConnected } = useAccount()
 
-  useEffect(() => {
-    let mounted = true
-    async function load() {
-      try {
-        const [sumRes, txRes] = await Promise.all([
-          earningsApi.summary(),
-          earningsApi.transactions(),
-        ])
-        if (mounted) {
-          setSummary(sumRes)
-          setTransactions(txRes.transactions)
-        }
-      } catch {
-        // Fall back to mock data for demo
-        if (mounted) {
-          setSummary({
-            available: 504,
-            held: 144,
-            totalEarned: 648,
-            thisMonth: 648,
-            referralEarnings: 62.40,
-            totalCalls: 5,
-            minutesBooked: 165,
-            last7Days: [180, 0, 288, 0, 0, 0, 180],
-            last7Labels: ['10-01', '10-02', '10-03', '10-04', '10-05', '10-06', '10-07'],
-          })
-          setTransactions(MOCK_EARNINGS)
-        }
-      } finally {
-        if (mounted) setLoadingData(false)
-      }
+  const load = useCallback(async () => {
+    setLoadingData(true)
+    setLoadError(false)
+    try {
+      const [sumRes, txRes] = await Promise.all([
+        earningsApi.summary(),
+        earningsApi.transactions(),
+      ])
+      setSummary(sumRes)
+      setTransactions(txRes.transactions)
+    } catch {
+      // Never show invented balances. Show the problem and let the person retry.
+      setSummary(null)
+      setTransactions([])
+      setLoadError(true)
+    } finally {
+      setLoadingData(false)
     }
-    void load()
-    return () => { mounted = false }
   }, [])
+
+  useEffect(() => {
+    async function init() { await load() }
+    void init()
+  }, [load])
 
   async function handleWithdraw() {
     if (!summary || summary.available <= 0) return
@@ -105,6 +95,8 @@ export function EarningsPage({ onNavigate }: EarningsPageProps) {
           <div className="flex items-center justify-center py-20">
             <Loader2 size={28} className="animate-spin text-[#6366F1]" />
           </div>
+        ) : loadError ? (
+          <LoadError what="your earnings" onRetry={() => { void load() }} />
         ) : (
           <>
             {/* Balance card */}

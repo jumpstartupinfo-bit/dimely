@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   Bell,
   Calendar,
@@ -12,7 +12,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { notifications as notifApi, type AppNotification } from '../lib/api'
-import { MOCK_NOTIFICATIONS } from '../data/mockData'
+import { LoadError } from '../components/LoadError'
 import type { Page } from '../App'
 
 interface NotificationsPageProps {
@@ -58,18 +58,26 @@ const TYPE_COLOR: Record<string, string> = {
 export function NotificationsPage({ onNavigate: _onNavigate }: NotificationsPageProps) {
   const [notifs, setNotifs] = useState<AppNotification[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await notifApi.list()
+      setNotifs(res.notifications)
+    } catch {
+      setNotifs([])
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    let mounted = true
-    notifApi.list().then((res) => {
-      if (mounted) setNotifs(res.notifications)
-    }).catch(() => {
-      if (mounted) setNotifs(MOCK_NOTIFICATIONS)
-    }).finally(() => {
-      if (mounted) setLoading(false)
-    })
-    return () => { mounted = false }
-  }, [])
+    async function init() { await load() }
+    void init()
+  }, [load])
 
   function markAllRead() {
     void notifApi.markAllRead().catch(() => {})
@@ -105,6 +113,8 @@ export function NotificationsPage({ onNavigate: _onNavigate }: NotificationsPage
           <div className="flex items-center justify-center py-20">
             <Loader2 size={28} className="animate-spin text-[#6366F1]" />
           </div>
+        ) : loadError ? (
+          <LoadError what="your notifications" onRetry={() => { void load() }} />
         ) : notifs.length === 0 ? (
           <div className="text-center py-20">
             <Bell size={40} className="text-gray-200 mx-auto mb-3" />

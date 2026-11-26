@@ -158,6 +158,23 @@ export function BookingFlow({ username, onNavigate }: BookingFlowProps) {
     )
   }
 
+  if (user && profile.user_id === user.id) {
+    return (
+      <div className="min-h-dvh flex items-center justify-center px-4">
+        <div className="max-w-sm text-center">
+          <p className="text-base font-semibold text-[#0F172A] mb-2">You cannot book a call with yourself</p>
+          <p className="text-sm text-[#64748B] mb-5">This is your own profile. Others can book you once your working hours are set.</p>
+          <button
+            onClick={() => onNavigate('profile', username)}
+            className="px-6 py-3 rounded-xl bg-[#6366F1] hover:bg-[#4F46E5] text-white text-sm font-semibold transition-colors"
+          >
+            Back to my profile
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   const price = selectedDuration ? parseFloat(String(profile.price_per_min)) * selectedDuration : 0
   const platformFee = selectedDuration ? Math.round(price * 0.2 * 100) / 100 : 0
 

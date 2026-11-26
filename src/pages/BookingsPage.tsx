@@ -1,8 +1,8 @@
 import type { Page } from '../App'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Video, Mic, Clock, CheckCircle2, XCircle, AlertCircle, ChevronRight, Calendar, Loader2 } from 'lucide-react'
 import { bookings as bookingsApi, type Booking } from '../lib/api'
-import { MOCK_BOOKINGS } from '../data/mockData'
+import { LoadError } from '../components/LoadError'
 
 interface BookingsPageProps {
   onNavigate: (page: Page, username?: string) => void
@@ -181,44 +181,30 @@ function BookingCard({ booking, onNavigate }: { booking: Booking; onNavigate: (p
 }
 
 // Adapt mock data shape to API Booking shape for fallback display
-function mockToBooking(m: (typeof MOCK_BOOKINGS)[0]): Booking {
-  return {
-    id: m.id,
-    guest_user_id: '',
-    host_user_id: '',
-    host_profile_id: '',
-    date: m.date,
-    start_time: m.time,
-    end_time: '',
-    duration: m.duration,
-    call_type: m.callType,
-    topic: m.topic,
-    guest_name: m.role === 'host' ? m.personName : undefined,
-    host_name: m.role === 'guest' ? m.personName : undefined,
-    status: m.status === 'upcoming' ? 'confirmed' : m.status,
-    gross_amount: m.totalPaid ?? 0,
-    platform_fee: 0,
-    host_earnings: m.hostEarnings ?? 0,
-    role: m.role,
-  }
-}
-
 export function BookingsPage({ onNavigate }: BookingsPageProps) {
   const [tab, setTab] = useState<Tab>('upcoming')
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const res = await bookingsApi.list()
+      setBookings(res.bookings)
+    } catch {
+      setBookings([])
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    let cancelled = false
-    bookingsApi.list()
-      .then((res) => { if (!cancelled) setBookings(res.bookings) })
-      .catch(() => {
-        // Fall back to mock data for demo
-        if (!cancelled) setBookings(MOCK_BOOKINGS.map(mockToBooking))
-      })
-      .finally(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [])
+    async function init() { await load() }
+    void init()
+  }, [load])
 
   const filtered = bookings.filter((b) => {
     if (tab === 'upcoming') return b.status === 'upcoming' || b.status === 'confirmed'
@@ -267,6 +253,8 @@ export function BookingsPage({ onNavigate }: BookingsPageProps) {
           <div className="flex items-center justify-center py-20">
             <Loader2 size={28} className="animate-spin text-[#6366F1]" />
           </div>
+        ) : loadError ? (
+          <LoadError what="your bookings" onRetry={() => { void load() }} />
         ) : filtered.length === 0 ? (
           <div className="text-center py-20">
             <div className="w-16 h-16 rounded-2xl bg-[#E0E7FF] flex items-center justify-center mx-auto mb-4">

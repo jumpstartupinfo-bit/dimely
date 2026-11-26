@@ -15,14 +15,13 @@
 import db, { withTransaction } from './db'
 import { newId } from './utils'
 import { createNotification } from './notifications'
-import { getReferralCommissionPercent } from './config'
+import { getReferralCommissionPercent, getSettlementDelayHours } from './config'
 import { settleBooking } from './payment-service'
 import { wasBookedAfterStart } from './booking-rules'
 import {
   evaluateCallOutcome,
   FINALIZE_AFTER_END_MS,
   HARD_STOP_AFTER_END_MS,
-  DISPUTE_WINDOW_HOURS,
   UNPAID_EXPIRY_MINUTES,
   type CallOutcome,
   type Interval,
@@ -69,7 +68,7 @@ async function expireUnpaidBookings(): Promise<void> {
     [UNPAID_EXPIRY_MINUTES],
   )
   if (expired.length === 0) return
-  const ids = expired.map((r) => String(r.id))
+  const ids = expired.map((r: Record<string, unknown>) => String(r.id))
   await db.run(`UPDATE escrow SET status='cancelled', updated_at=NOW() WHERE booking_id = ANY($1::text[]) AND status='held'`, [ids])
   await db.run(
     `UPDATE payments SET status='expired', updated_at=NOW()
@@ -137,6 +136,7 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
   const hostMs = evaluated?.hostMs ?? 0
   const guestMs = evaluated?.guestMs ?? 0
 
+  const delayHours = await getSettlementDelayHours()
   const applied = await withTransaction(async (tx) => {
     let claim: Record<string, any> | undefined
 
@@ -145,7 +145,7 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
       claim = await tx.get(
         `UPDATE bookings SET status='completed', outcome=$2, release_at = NOW() + ($3 * interval '1 hour'), updated_at=NOW()
          WHERE id=$1 AND status='confirmed' RETURNING id`,
-        [booking.id, outcome, DISPUTE_WINDOW_HOURS],
+        [booking.id, outcome, delayHours],
       )
     } else if (outcome === 'host_no_show' || outcome === 'both_no_show' || outcome === 'invalid_time') {
       // The guest is owed a full refund. The host earns nothing.
@@ -187,23 +187,23 @@ async function finalizeBooking(booking: Record<string, any>): Promise<void> {
     return true
   })
 
-  if (applied) notifyOutcome(outcome, booking)
+  if (applied) notifyOutcome(outcome, booking, delayHours)
 }
 
-function notifyOutcome(outcome: CallOutcome | 'invalid_time', b: Record<string, any>): void {
+function notifyOutcome(outcome: CallOutcome | 'invalid_time', b: Record<string, any>, delayHours: number): void {
   const meta = { bookingId: b.id }
   const hostId = String(b.host_id)
   const guestId = String(b.guest_id)
   switch (outcome) {
     case 'completed':
       createNotification(hostId, 'call_completed', 'Call complete',
-        `Your call on ${b.date} is complete. Your earnings are released after ${DISPUTE_WINDOW_HOURS} hours unless a problem is raised.`, meta)
+        `Your call on ${b.date} is complete. Your earnings are released after ${delayHours} hours unless a problem is raised.`, meta)
       createNotification(guestId, 'call_completed', 'Call complete',
-        `Your call on ${b.date} is complete. If something went wrong, you can raise a problem within ${DISPUTE_WINDOW_HOURS} hours.`, meta)
+        `Your call on ${b.date} is complete. If something went wrong, you can raise a problem within ${delayHours} hours.`, meta)
       break
     case 'guest_no_show':
       createNotification(hostId, 'call_completed', 'Your guest did not join',
-        `Your guest did not join the call on ${b.date}. Your earnings are released after ${DISPUTE_WINDOW_HOURS} hours.`, meta)
+        `Your guest did not join the call on ${b.date}. Your earnings are released after ${delayHours} hours.`, meta)
       createNotification(guestId, 'call_missed', 'You missed your call',
         `You did not join your call on ${b.date}. Missed calls are not refunded.`, meta)
       break
@@ -244,7 +244,7 @@ async function releaseDueEscrow(): Promise<void> {
      ORDER BY release_at
      LIMIT 50`,
   )
-  const commissionPercent = getReferralCommissionPercent()
+  const commissionPercent = await getReferralCommissionPercent()
   for (const row of due) {
     const result = await settleBooking(String(row.id), commissionPercent)
     if (!result.ok && result.error === 'Settlement failed.') {

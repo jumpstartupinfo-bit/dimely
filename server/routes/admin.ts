@@ -303,7 +303,7 @@ router.post('/disputes/:id/resolve', requireAdmin, async (req: Request, res: Res
     if (resolved === 'not_held') { res.status(409).json({ error: 'The payment for this booking is not being held, so there is nothing to decide.' }); return }
 
     if (decision === 'release_to_host') {
-      const result = await settleBooking(booking.id, getReferralCommissionPercent())
+      const result = await settleBooking(booking.id, await getReferralCommissionPercent())
       if (!result.ok) console.error('Release after dispute failed for booking', booking.id, result.error)
     }
 
